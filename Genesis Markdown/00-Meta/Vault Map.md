@@ -12,7 +12,7 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**96 notes.** Status: ○ spec · ◐ building · ● built
+**97 notes.** Status: ○ spec · ◐ building · ● built
 
 
 ## 00-Meta
@@ -30,12 +30,12 @@ while reading, this is how you find the file behind it.
 
 | Note | Path | | Implemented by |
 |---|---|---|---|
-| `Agent Contract` | `Genesis Markdown/10-Architecture/Agent Contract.md` | ○ |  |
+| `Agent Contract` | `Genesis Markdown/10-Architecture/Agent Contract.md` | ◐ | [src/genesis/agents/base.py, tests/agents/test_contract.py] |
 | `Approval Modes` | `Genesis Markdown/10-Architecture/Approval Modes.md` | ○ |  |
 | `Charting Engine` | `Genesis Markdown/10-Architecture/Charting Engine.md` | ○ |  |
 | `Config And Secrets` | `Genesis Markdown/10-Architecture/Config And Secrets.md` | ◐ | [src/genesis/config.py, src/genesis/default_config.yaml, tests/test_config.py] |
-| `Daemon And Cadence` | `Genesis Markdown/10-Architecture/Daemon And Cadence.md` | ○ |  |
-| `Error Handling And Degradation` | `Genesis Markdown/10-Architecture/Error Handling And Degradation.md` | ○ |  |
+| `Daemon And Cadence` | `Genesis Markdown/10-Architecture/Daemon And Cadence.md` | ◐ | [src/genesis/daemon/daemon.py, src/genesis/daemon/calendar.py, src/genesis/daemon/scheduler.py, src/genesis/daemon/supervisor.py, tests/daemon/] |
+| `Error Handling And Degradation` | `Genesis Markdown/10-Architecture/Error Handling And Degradation.md` | ◐ | [src/genesis/errors.py, src/genesis/bus/bus.py] |
 | `LLM Model Tiers` | `Genesis Markdown/10-Architecture/LLM Model Tiers.md` | ○ |  |
 | `Market Data Sources` | `Genesis Markdown/10-Architecture/Market Data Sources.md` | ○ |  |
 | `Markup Spec` | `Genesis Markdown/10-Architecture/Markup Spec.md` | ○ |  |
@@ -43,7 +43,7 @@ while reading, this is how you find the file behind it.
 | `Orchestrator Tools` | `Genesis Markdown/10-Architecture/Orchestrator Tools.md` | ○ |  |
 | `Orchestrator` | `Genesis Markdown/10-Architecture/Orchestrator.md` | ○ |  |
 | `System Overview` | `Genesis Markdown/10-Architecture/System Overview.md` | ○ |  |
-| `Task Bus` | `Genesis Markdown/10-Architecture/Task Bus.md` | ○ |  |
+| `Task Bus` | `Genesis Markdown/10-Architecture/Task Bus.md` | ◐ | [src/genesis/bus/bus.py, src/genesis/bus/task.py, tests/bus/test_task_bus.py] |
 | `Voice Stack` | `Genesis Markdown/10-Architecture/Voice Stack.md` | ○ |  |
 
 ## 20-Agents
@@ -102,13 +102,13 @@ while reading, this is how you find the file behind it.
 
 | Note | Path | | Implemented by |
 |---|---|---|---|
-| `Episodic Log` | `Genesis Markdown/40-Memory/Episodic Log.md` | ○ |  |
+| `Episodic Log` | `Genesis Markdown/40-Memory/Episodic Log.md` | ◐ | [src/genesis/memory/episodic.py, tests/memory/test_episodic.py] |
 | `Knowledge Graph` | `Genesis Markdown/40-Memory/Knowledge Graph.md` | ○ |  |
 | `Memory Consolidation` | `Genesis Markdown/40-Memory/Memory Consolidation.md` | ○ |  |
-| `Memory Fabric` | `Genesis Markdown/40-Memory/Memory Fabric.md` | ○ |  |
+| `Memory Fabric` | `Genesis Markdown/40-Memory/Memory Fabric.md` | ◐ | [src/genesis/memory/db.py, src/genesis/memory/episodic.py, src/genesis/memory/ledger.py] |
 | `Obsidian Vault Schema` | `Genesis Markdown/40-Memory/Obsidian Vault Schema.md` | ○ |  |
 | `Recall Pathways` | `Genesis Markdown/40-Memory/Recall Pathways.md` | ○ |  |
-| `Trade Ledger` | `Genesis Markdown/40-Memory/Trade Ledger.md` | ○ |  |
+| `Trade Ledger` | `Genesis Markdown/40-Memory/Trade Ledger.md` | ◐ | [src/genesis/memory/ledger.py, tests/memory/test_ledger.py, tests/crash/test_ledger_durability.py] |
 | `Vector Store` | `Genesis Markdown/40-Memory/Vector Store.md` | ○ |  |
 | `Working Memory` | `Genesis Markdown/40-Memory/Working Memory.md` | ○ |  |
 
@@ -140,7 +140,7 @@ while reading, this is how you find the file behind it.
 | `Event Schema` | `Genesis Markdown/70-Schemas/Event Schema.md` | ○ |  |
 | `Idea Schema` | `Genesis Markdown/70-Schemas/Idea Schema.md` | ○ |  |
 | `Markup Spec Schema` | `Genesis Markdown/70-Schemas/Markup Spec Schema.md` | ○ |  |
-| `Order And Fill Schema` | `Genesis Markdown/70-Schemas/Order And Fill Schema.md` | ○ |  |
+| `Order And Fill Schema` | `Genesis Markdown/70-Schemas/Order And Fill Schema.md` | ◐ | [src/genesis/memory/ledger.py] |
 | `Strategy Schema` | `Genesis Markdown/70-Schemas/Strategy Schema.md` | ○ |  |
 | `Trade Journal Schema` | `Genesis Markdown/70-Schemas/Trade Journal Schema.md` | ○ |  |
 
@@ -159,6 +159,7 @@ while reading, this is how you find the file behind it.
 
 | Note | Path | | Implemented by |
 |---|---|---|---|
+| `Biological Design for Gensis Orchistrator` | `Genesis Markdown/Biological Design for Gensis Orchistrator.md` |  |  |
 | `Genesis Agent — Home` | `Genesis Markdown/Genesis Agent — Home.md` |  |  |
 
 ---
