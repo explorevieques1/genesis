@@ -1,8 +1,8 @@
 ---
 title: Memory Fabric
 tags: [memory, moc, core]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/memory/db.py, src/genesis/memory/episodic.py, src/genesis/memory/ledger.py]
 ---
 
 # 🧠 Memory Fabric

@@ -1,8 +1,8 @@
 ---
 title: Episodic Log
 tags: [memory]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/memory/episodic.py, tests/memory/test_episodic.py]
 ---
 
 # Episodic Log
