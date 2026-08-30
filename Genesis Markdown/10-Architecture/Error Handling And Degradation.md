@@ -1,8 +1,8 @@
 ---
 title: Error Handling And Degradation
 tags: [architecture, risk]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/errors.py, src/genesis/bus/bus.py]
 ---
 
 # Error Handling And Degradation

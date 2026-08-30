@@ -24,15 +24,15 @@ Secrets are redacted on the way to disk, never after.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import threading
-import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, TextIO
+
+from genesis.ids import new_trace_id
 
 __all__ = [
     "Console",
@@ -44,20 +44,9 @@ __all__ = [
 
 LEVELS: dict[str, int] = {"debug": 10, "info": 20, "warn": 30, "error": 40}
 
-_ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32, no I/L/O/U
-
-
-def _short_id(prefix: str) -> str:
-    n = uuid.uuid4().int
-    body = "".join(
-        _ID_ALPHABET[(n >> (5 * i)) & 31] for i in range(20)
-    )
-    return f"{prefix}_{body}"
-
-
-def new_trace_id() -> str:
-    """Open a new trace. One per user utterance, per Observability.md."""
-    return _short_id("tr")
+# Id generation lives in genesis.ids so the Episodic Log and the Task Bus mint
+# ids the same way. Re-exported here because trace ids are an observability
+# concept and callers expect to find them alongside the log.
 
 
 # --------------------------------------------------------------------------
