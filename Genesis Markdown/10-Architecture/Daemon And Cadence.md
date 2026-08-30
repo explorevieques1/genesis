@@ -1,8 +1,8 @@
 ---
 title: Daemon And Cadence
 tags: [architecture, core]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/daemon/daemon.py, src/genesis/daemon/calendar.py, src/genesis/daemon/scheduler.py, src/genesis/daemon/supervisor.py, tests/daemon/]
 ---
 
 # Daemon And Cadence
