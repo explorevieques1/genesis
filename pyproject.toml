@@ -12,6 +12,10 @@ dependencies = [
     "pydantic>=2.7",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
+    # Daemon And Cadence: "The calendar must be real (market holidays, half-days,
+    # DST). Getting this wrong means the system backtests during the open and
+    # scans on Christmas." Hand-rolling NYSE's rules is precisely that failure.
+    "exchange-calendars>=4.5",
 ]
 
 [project.scripts]
@@ -31,8 +35,13 @@ packages = ["src/genesis"]
 # evals/ is deliberately excluded from the default run: they are LLM-behaviour
 # checks (Phase 2+), non-deterministic and slow. Run them with `pytest evals`.
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests", "."]
 addopts = "-q --strict-markers"
 markers = [
     "eval: an LLM-behaviour eval, not a unit test (see evals/README.md)",
+    # Crash tests spawn real subprocesses and SIGKILL them, so they are slower
+    # than the rest. They run by DEFAULT and are only marked so they can be
+    # deselected deliberately (`-m "not crash"`). A crash-durability test that
+    # is skipped by default is worthless.
+    "crash: spawns a subprocess and kills it with SIGKILL",
 ]

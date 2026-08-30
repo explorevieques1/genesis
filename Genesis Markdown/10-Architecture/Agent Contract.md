@@ -1,8 +1,8 @@
 ---
 title: Agent Contract
 tags: [architecture, agent]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/agents/base.py, tests/agents/test_contract.py]
 ---
 
 # Agent Contract
