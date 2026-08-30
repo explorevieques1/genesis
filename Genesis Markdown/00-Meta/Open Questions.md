@@ -81,7 +81,17 @@ insufficient for [[Agent — Level Watcher]] and intraday [[Agent — Screener]]
 **Consequence:** without it, drop [[Agent — Level Watcher]] to a 1-minute poll and
 mark intraday ideas as delayed in [[Idea Schema]].
 
-> **Decision:**
+> **Decision (2026-08-29):** Read the **existing TradingView live subscription**
+> through [[genesis-tradingview-mcp]] rather than buying the same ticks twice.
+> That covers tier 2 in [[Market Data Sources]] — quotes, session H/L, and bars
+> for local computation.
+>
+> **Still open:** tier 1. [[Pre-Trade Risk Engine]] may only read the broker's own
+> feed ([[Safety Invariants]] §11), so this depends on §1. A broker feed may make
+> a separate real-time subscription unnecessary — decide after §1.
+>
+> Also: cache every closed bar locally on first sight. Bars are immutable, so over
+> months this becomes a private history that makes backtests free.
 
 ---
 
@@ -123,3 +133,26 @@ One account or several (personal + funded + paper) in parallel? Multi-account me
 expensive to retrofit.
 
 > **Decision:**
+
+---
+
+### 11. Charting surface — RESOLVED
+Where do marked-up charts actually appear?
+
+> **Decision (2026-08-29):** **TradingView Desktop is the primary surface.** It is
+> already the daily charting app with a live subscription, so Genesis runs
+> alongside it and drives it via [[genesis-tradingview-mcp]] rather than trying to
+> replace it.
+>
+> The headless renderers in [[Charting Engine]] stay — they cover vault notes,
+> journal snapshots, vision input, and the [[Dashboard]]. Nothing autonomous may
+> depend on a GUI being open.
+>
+> [[Markup Spec]] remains canonical. TradingView is a *renderer*, never the source
+> of truth — otherwise level-outcome tracking in [[Knowledge Graph]] dies, and
+> that is the capability no charting platform can give us.
+
+**Still open:** does the CDP remote-debugging port actually open on TradingView
+Desktop? A 30-minute spike gates the whole server — see
+[[genesis-tradingview-mcp]]. If that door is shut, fall back to embedding
+lightweight-charts in the [[Dashboard]] and applying markup by hand.

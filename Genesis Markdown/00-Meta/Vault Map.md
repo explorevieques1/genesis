@@ -12,7 +12,7 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**92 notes.** Status: ○ spec · ◐ building · ● built
+**94 notes.** Status: ○ spec · ◐ building · ● built
 
 
 ## 00-Meta
@@ -37,6 +37,7 @@ while reading, this is how you find the file behind it.
 | `Daemon And Cadence` | `Genesis Markdown/10-Architecture/Daemon And Cadence.md` | ○ |  |
 | `Error Handling And Degradation` | `Genesis Markdown/10-Architecture/Error Handling And Degradation.md` | ○ |  |
 | `LLM Model Tiers` | `Genesis Markdown/10-Architecture/LLM Model Tiers.md` | ○ |  |
+| `Market Data Sources` | `Genesis Markdown/10-Architecture/Market Data Sources.md` | ○ |  |
 | `Markup Spec` | `Genesis Markdown/10-Architecture/Markup Spec.md` | ○ |  |
 | `Observability` | `Genesis Markdown/10-Architecture/Observability.md` | ○ |  |
 | `Orchestrator` | `Genesis Markdown/10-Architecture/Orchestrator.md` | ○ |  |
@@ -93,6 +94,7 @@ while reading, this is how you find the file behind it.
 | `genesis-charting-mcp` | `Genesis Markdown/30-MCP/genesis-charting-mcp.md` | ○ |  |
 | `genesis-execution-mcp` | `Genesis Markdown/30-MCP/genesis-execution-mcp.md` | ○ |  |
 | `genesis-memory-mcp` | `Genesis Markdown/30-MCP/genesis-memory-mcp.md` | ○ |  |
+| `genesis-tradingview-mcp` | `Genesis Markdown/30-MCP/genesis-tradingview-mcp.md` | ○ |  |
 
 ## 40-Memory
 

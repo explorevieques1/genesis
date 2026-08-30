@@ -20,7 +20,14 @@ Resolve [[Open Questions]] before Phase 1.
 - Repo layout, `pyproject.toml`, config loader ([[Config And Secrets]]), logging
   ([[Observability]]), test + eval harness (pattern: [[Repo — jarvis]] `EVALS.md`).
 
-**Exit:** `genesis --version` runs; config loads; one passing test.
+**Spike — do this first, it takes 30 minutes and gates a whole component:** launch
+TradingView Desktop with `--remote-debugging-port=9222` and try to attach over CDP.
+If the port opens, [[genesis-tradingview-mcp]] is viable and §11 stands. If not,
+the charting surface falls back to lightweight-charts in the [[Dashboard]]. Record
+the answer in the MCP note before Phase 3.
+
+**Exit:** `genesis --version` runs; config loads; one passing test; the CDP spike
+has a definite yes/no.
 
 ---
 
@@ -62,6 +69,8 @@ Reference: [[Repo — jarvis]] `listening/`, `reply/planner.py`, `output/`.
 - Untrusted-content fencing
 - Per-agent allow-lists
 - Wire first servers: market data, Obsidian, filesystem, time
+- [[genesis-tradingview-mcp]] — desktop control and the tier-2 data read path
+  ([[Market Data Sources]]), if the Phase 0 spike came back yes
 
 Reference: [[Repo — jarvis]] `tools/registry.py`, `tools/selection.py`, `tools/external/mcp_runtime.py`.
 

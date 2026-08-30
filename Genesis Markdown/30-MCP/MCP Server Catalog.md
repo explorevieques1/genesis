@@ -27,8 +27,15 @@ unavoidable. No agent gets raw broker access.
 | Server | Status | Notes |
 |---|---|---|
 | **mcp-market-data-server** (fintools-ai) | integrate | Volume profile, 15+ indicators, ORB, fair-value-gap analysis. Built for AI trading agents. The structural-level workhorse for [[Agent — Chart Markup]] and [[Agent — Screener]]. |
-| **tradingview-mcp** | integrate | Real-time data, technical analysis, screeners, backtesting via TradingView. |
+| **tradingview-mcp** (atilaahmettaner) | integrate | 37 tools: indicators, screeners, multi-timeframe reads, sentiment, backtesting. **Headless data and analysis only — it does not draw.** No TradingView account in the loop; fetches public endpoints, so it is tier 3 ([[Market Data Sources]]). |
+| **[[genesis-tradingview-mcp]]** | build | Drives the TradingView **Desktop app** over CDP, and reads the live subscription already running in it. A different job entirely from the row above — actuation and tier-2 data. |
 | StockMCP | optional | Yahoo Finance real-time + basic analysis, FastAPI-based. Good free fallback. |
+
+Those first two rows share a name and share nothing else. One answers *what is true
+about the market*; the other *makes my screen show it*. Both earn a place.
+
+Every source is tiered by trust in [[Market Data Sources]] — and tier 1, the
+broker's own feed, is the only thing [[Pre-Trade Risk Engine]] is allowed to read.
 
 ## Fundamentals / news
 
@@ -59,6 +66,7 @@ filesystem · git · fetch · time · sqlite — housekeeping, and useful to
 | [[genesis-charting-mcp]] | Level computation + [[Markup Spec]] rendering are core to the system. |
 | [[genesis-memory-mcp]] | Query and write [[Memory Fabric]] from any agent — and from Claude Code. |
 | [[genesis-backtest-mcp]] | One call runs vectorbt / backtesting.py / freqtrade and returns a complete result. |
+| [[genesis-tradingview-mcp]] | Nobody else's server drives *your* desktop app, respects your hand-drawn objects, or refuses to reach the Trade panel. |
 
 ## Integration checklist
 

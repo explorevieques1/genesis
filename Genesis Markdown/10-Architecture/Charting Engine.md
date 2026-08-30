@@ -12,13 +12,27 @@ a declarative object. Everything else renders it.
 
 ## Renderers
 
-| Renderer | Output | Used by |
-|---|---|---|
-| **Server-side** | PNG / SVG from an OHLCV frame + [[Markup Spec]] | vault notes, voice-reply attachments, [[Agent — Pattern Recognition]] vision input, journal entry/exit snapshots |
-| **Client-side** | interactive chart in the browser | [[Dashboard]] chart pane |
+| Renderer | Output | Headless? | Used by |
+|---|---|---|---|
+| **Server-side** | PNG / SVG from an OHLCV frame + [[Markup Spec]] | yes | vault notes, voice-reply attachments, [[Agent — Pattern Recognition]] vision input, journal entry/exit snapshots |
+| **Client-side** | interactive chart in the browser | yes | [[Dashboard]] chart pane |
+| **TradingView Desktop** | the spec compiled to a Pine indicator, applied to your live chart | **no** | you, at the desk — via [[genesis-tradingview-mcp]] |
 
-Both consume the identical spec, so what you see on the dashboard is exactly what
-went into the vault and exactly what the vision model read. No drift between views.
+All three consume the identical spec, so what you see on the dashboard is exactly
+what went into the vault and exactly what the vision model read. No drift between
+views.
+
+The third renderer is the one you look at all day, and the one that cannot run
+without a GUI. **Nothing autonomous may depend on it** — the 3am
+[[Daemon And Cadence|market-closed loop]] marks up charts through the headless
+renderer, and TradingView catches up when you are back at the desk.
+
+> [!tip] Compile, don't click
+> The Desktop renderer works by compiling the spec into a Pine indicator and
+> loading it through the editor — not by simulating mouse drags on the chart.
+> Text and keystrokes are a far more robust automation surface than price→pixel
+> math, and Genesis ends up owning exactly one indicator, so your hand-drawn
+> objects are never touched. See [[genesis-tradingview-mcp]].
 
 Client lineage: `price-chart.html` from [[Repo — Gensis Terminal Official]] (lightweight-charts style).
 
@@ -42,6 +56,24 @@ Genesis computes structure itself rather than trusting a screenshot.
 Indicator math should be **borrowed, not reinvented** — see [[Trading Corpus Index]]:
 `nautilus_trader/indicators/`, `vectorbt/indicators/factory.py`,
 `mcp-market-data-server` for the structural ones.
+
+### Where levels come from
+
+Both computed and fetched, for different jobs.
+
+| Use | Source | Why |
+|---|---|---|
+| Anything written to a [[Markup Spec]] or tracked in [[Knowledge Graph]] | **computed here** | Level-outcome tracking needs provenance and determinism. A level whose derivation we can't reproduce can't be scored later. |
+| Quick answers, cross-checks, second opinions | `tradingview-mcp` TA tools, or read from the desktop app | Free, instant, and already paid for ([[Market Data Sources]]) |
+
+Fetching a level is cheap; **it is not cheaper in the way that matters.** Computing
+S/R from an OHLCV frame is milliseconds — compute was never the bottleneck. Getting
+the bars is what costs money, which is why [[genesis-tradingview-mcp]] has a read
+path into the live subscription.
+
+So: read *bars* from wherever they are cheapest, compute *structure* locally. When
+a fetched level and a computed one disagree, keep the computed one and log the
+disagreement — a persistent gap means the scoring in `compute_levels` needs work.
 
 ## Rendering rules
 

@@ -7,8 +7,8 @@ implemented_by: []
 
 # 🔒 Safety Invariants
 
-Ten rules. **The design is wrong if any of them breaks.** Each has a test whose job
-is to try to violate it.
+Twelve rules. **The design is wrong if any of them breaks.** Each has a test whose
+job is to try to violate it.
 
 ---
 
@@ -83,6 +83,24 @@ No invented price, level, position, or P&L. Degraded input produces labelled out
 **Test:** cut the data feed; assert no numeric claim is made without a source or a
 staleness label.
 
+### 11. Execution reads tier-1 data only
+[[Pre-Trade Risk Engine]] sizes, checks stops, and evaluates limits against the
+**broker's own feed and account state** — never a quote scraped from a GUI, never
+a public endpoint. Other tiers answer questions; only tier 1 moves money.
+([[Market Data Sources]])
+
+**Test:** feed the risk engine a tier-2 or tier-3 quote; assert rejection, not use.
+
+### 12. UI automation can never reach an order path
+[[genesis-tradingview-mcp]] drives a desktop app that has broker integration built
+in. It exposes **no order tool**, the Trade panel is a denied selector, and any
+action resolving into it aborts and logs. This is rule 1 restated for a surface
+that could otherwise sidestep it — an automation server that can click is an
+automation server that can click *Buy*.
+
+**Test:** enumerate the server's tool surface and assert no order path exists;
+attempt a Trade-panel interaction and assert it aborts.
+
 ---
 
 ## Supporting rules
@@ -103,7 +121,7 @@ These aren't quite invariants, but violating them is how invariants eventually b
 Any change touching the [[Execution Family]], [[Pre-Trade Risk Engine]],
 [[Kill Switch]], [[Risk Envelope]], or [[Trade Ledger]]:
 
-- Re-run the full invariant test suite — all ten, every time
+- Re-run the full invariant test suite — all twelve, every time
 - Re-read this note before merging
 - If a change makes an invariant harder to hold, that's a design smell, not an
   acceptable trade-off
@@ -111,4 +129,5 @@ Any change touching the [[Execution Family]], [[Pre-Trade Risk Engine]],
 ## Related
 
 [[Pre-Trade Risk Engine]] · [[Kill Switch]] · [[Risk Envelope]] · [[Approval Modes]] ·
-[[Trade Ledger]] · [[Error Handling And Degradation]] · [[Execution Family]]
+[[Trade Ledger]] · [[Error Handling And Degradation]] · [[Execution Family]] ·
+[[Market Data Sources]] · [[genesis-tradingview-mcp]]
