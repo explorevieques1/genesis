@@ -39,17 +39,81 @@ the first place is what costs money. See [[Market Data Sources]].
 ## Transport
 
 TradingView Desktop is an Electron app. Launch it with a remote debugging port and
-attach over the Chrome DevTools Protocol:
+attach over the Chrome DevTools Protocol.
 
-```
-tradingview --remote-debugging-port=9222
-playwright.chromium.connect_over_cdp("http://localhost:9222")
+> [!success] Spike result: **YES** — verified 2026-08-30. Transport: **raw CDP**.
+> The remote debugging port opens and a full CDP attach works against the live,
+> signed-in app. This server is viable and [[Open Questions]] §11 stands.
+>
+> **Evidence** — TradingView Desktop 3.3.0, Electron 38.2.2, Chromium 140.0.7339.133:
+> - `127.0.0.1:9222` reaches LISTEN ~4 s after launch.
+> - `GET /json/version` returns `Protocol-Version: 1.3` and a
+>   `webSocketDebuggerUrl`; UA is `... TradingView/3.3.0 ... TVDesktop/3.3.0`.
+> - `GET /json/list` enumerates 11 targets, including the live chart page.
+> - `Runtime.evaluate` on that page returned the active symbol (`NQ1!`) and 34
+>   chart `<canvas>` elements; `Page.getLayoutMetrics` OK.
+> - Browser-level `Target.getTargets` and `Target.setDiscoverTargets` OK.
+>
+> The app was signed in to the real account, so this is a read of the **live
+> subscription session** — the tier-2 data path in [[Market Data Sources]], as
+> intended.
+
+### How to attach
+
+Retrieve the websocket URL over HTTP, then open the socket directly. No browser
+automation framework — see *What doesn't work* below.
+
+```python
+# browser-level endpoint
+ver = requests.get("http://localhost:9222/json/version").json()
+ws_url = ver["webSocketDebuggerUrl"]
+
+# or a specific page (what the markup and read tools actually want)
+targets = requests.get("http://localhost:9222/json/list").json()
+chart = next(t for t in targets if "tradingview.com/chart" in t["url"])
+ws_url = chart["webSocketDebuggerUrl"]
+
+# then speak CDP over the socket: {"id": n, "method": ..., "params": {...}}
 ```
 
-> [!warning] Verify this before building anything else
-> Electron apps can disable remote debugging, and if this door is shut the whole
-> approach changes. **A 30-minute spike gates this entire server.** Do it first;
-> record the result here.
+### Launching the app
+
+> [!danger] `ELECTRON_RUN_AS_NODE` must be unset in the child environment
+> **Symptom:** the launch fails with
+> `/usr/bin/tradingview: bad option: --remote-debugging-port=9222`, and no port
+> opens. This is indistinguishable at a glance from *"Electron disabled remote
+> debugging"* — i.e. it looks exactly like the NO answer that kills this whole
+> server.
+>
+> **Cause:** it is not TradingView. `ELECTRON_RUN_AS_NODE=1` is set in the VS Code
+> extension-host shell (and any process inheriting it). With that set, the Electron
+> binary runs as plain Node and parses `--remote-debugging-port` as a Node CLI
+> option, which it rejects. You get a Node REPL where a chart should be.
+>
+> **Rule:** any Genesis process that spawns TradingView **must explicitly remove
+> `ELECTRON_RUN_AS_NODE` from the child environment** — do not merely rely on it
+> being absent from the parent. See [[Error Handling And Degradation]].
+>
+> ```python
+> env = {k: v for k, v in os.environ.items() if k != "ELECTRON_RUN_AS_NODE"}
+> subprocess.Popen(["tradingview", "--remote-debugging-port=9222"], env=env)
+> ```
+
+### What doesn't work
+
+**Playwright `connect_over_cdp` — tried and rejected.** The obvious client is not
+the right one:
+
+```python
+playwright.chromium.connect_over_cdp("http://localhost:9222")   # hangs, do not use
+```
+
+It retrieves the websocket URL, connects the socket, and then hangs until the
+180 s launch timeout. Playwright's browser-attach handshake disagrees with
+Electron's target model. Raw CDP against the *same* browser endpoint succeeds in
+milliseconds, so this is a client-library incompatibility, not a closed door.
+
+Recorded here so Phase 3 does not spend an afternoon re-attempting it.
 
 ## Drawing: compile to Pine, don't simulate clicks
 

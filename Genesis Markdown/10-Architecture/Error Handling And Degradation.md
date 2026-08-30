@@ -66,6 +66,23 @@ Last known as of 14:32 was 40 NVDA long — treat that as stale."*
 - MCP session loss gets one silent reconnect before it counts as an attempt
   (pattern: [[Repo — jarvis]] `mcp_runtime.spec.md`).
 
+## Spawning external processes
+
+A child process inherits the parent's environment, and an inherited variable can
+silently change what the child *is*. Build the child env explicitly; never assume
+the parent's is clean.
+
+- **`ELECTRON_RUN_AS_NODE` must be removed when spawning any Electron app.** If it
+  is set (it is, in the VS Code extension-host shell), the binary runs as plain
+  Node, rejects the app's own CLI flags, and gives you a REPL instead of a window.
+  The failure — `bad option: --remote-debugging-port=9222` — reads exactly like the
+  app having disabled remote debugging, so it is misdiagnosed as a dead end rather
+  than a dirty environment. See [[genesis-tradingview-mcp]].
+
+Classify a spawn that fails on flag parsing as `fatal` for that component, not
+`transient` — retrying with the same environment cannot succeed, and the honest
+report is "I could not launch it", never a guess about why.
+
 ## Circuit breakers
 
 A component failing repeatedly is taken out of rotation rather than retried forever:
