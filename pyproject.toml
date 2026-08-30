@@ -1,0 +1,38 @@
+# Spec: Genesis Markdown/00-Meta/Build Order.md  (Phase 0 — Decide and scaffold)
+[project]
+name = "genesis"
+version = "0.0.1"
+description = "Genesis Agent — a voice-driven, multi-agent autonomous trading system."
+readme = "README.md"
+# Pinned to 3.12 deliberately: the trading corpus (vectorbt, freqtrade, nautilus,
+# qlib) does not yet support 3.13+, and the system's numeric core must run on the
+# same interpreter as the libraries it learns from. See 80-Repos/Trading Corpus Index.md
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+genesis = "genesis.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/genesis"]
+
+[tool.pytest.ini_options]
+# evals/ is deliberately excluded from the default run: they are LLM-behaviour
+# checks (Phase 2+), non-deterministic and slow. Run them with `pytest evals`.
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = [
+    "eval: an LLM-behaviour eval, not a unit test (see evals/README.md)",
+]

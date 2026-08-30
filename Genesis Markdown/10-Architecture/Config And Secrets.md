@@ -1,8 +1,8 @@
 ---
 title: Config And Secrets
 tags: [architecture]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/config.py, src/genesis/default_config.yaml, tests/test_config.py]
 ---
 
 # Config And Secrets
@@ -11,12 +11,22 @@ implemented_by: []
 
 Later layers override earlier ones:
 
-1. **Defaults** — shipped in code, safe values (`approval_mode: advisory`)
+1. **Defaults** — shipped in code, safe values (`approval_mode: confirm`)
 2. **Config file** — `~/.genesis/config.yaml`, human-edited, version-controllable
 3. **Environment** — secrets only, never behaviour
 4. **Runtime** — [[Dashboard]] toggles; persisted back to the config file with an audit entry
 
 Rule: **secrets in env, behaviour in config.** Never an API key in the YAML.
+
+> [!important] The system-wide default approval mode is `confirm`
+> Not `advisory`. This is a [[Safety Invariants|hard rule]]: never ship a default
+> that trades unattended. It holds for the shipped defaults, for the template
+> written to `~/.genesis/config.yaml`, and for any code path that has to invent a
+> mode.
+>
+> [[Build Order|Phase 7]]'s *"ship in advisory, then confirm"* is a different
+> thing — it describes the rollout sequence for [[genesis-execution-mcp]]
+> specifically, not the system default. Do not read it as licence to lower this.
 
 ## Config sketch
 

@@ -1,0 +1,79 @@
+# Spec: Genesis Markdown/10-Architecture/Config And Secrets.md
+#
+# Layer 1 of the config stack: the defaults shipped in code.
+#
+# These are the *safe* values. Later layers override them:
+#   1. this file          — defaults shipped in code
+#   2. ~/.genesis/config.yaml — human-edited behaviour
+#   3. environment        — SECRETS ONLY, never behaviour
+#   4. runtime            — Dashboard toggles (Phase 6), persisted back with an audit entry
+#
+# Rule: secrets in env, behaviour in config. Never an API key in this file.
+# `genesis config init` writes a commented copy of this to ~/.genesis/config.yaml.
+
+identity:
+  wake_word: genesis
+  voice_id: null           # ElevenLabs voice id; null until Phase 2
+  persona: butler          # calm, concise, precise
+  verbosity: brief         # terse | brief | full
+
+approval:
+  # confirm is the system-wide default and a hard rule: never ship a default that
+  # trades unattended. See 50-Risk/Safety Invariants.md and CLAUDE.md rule 5.
+  # (`advisory` is only the starting point for the execution MCP's own Phase 7
+  # rollout — a different thing from the system default.)
+  mode: confirm            # advisory | confirm | auto-within-limits | halt
+  confirmation_ttl_sec: 60
+  require_ticker_in_confirmation: true
+
+risk:                      # the signed envelope — see 50-Risk/Risk Envelope.md
+  max_position_pct: 5.0
+  max_portfolio_heat_pct: 6.0
+  max_daily_loss_pct: 2.0
+  max_correlated_exposure_pct: 10.0
+  symbol_allowlist: [NVDA, AMD, AVGO, SPY, QQQ]
+  session_window:
+    start: "09:45"
+    end: "15:45"
+    tz: America/New_York
+  prop_firm: null          # Open Questions §2 — none for v1
+
+brokers:
+  primary:
+    kind: alpaca           # Open Questions §1 — Alpaca paper, US equities, v1
+    mode: paper            # paper | live
+    # keys come from env: ALPACA_API_KEY / ALPACA_SECRET_KEY
+
+data:
+  primary_feed: alpaca
+  realtime: false          # see Open Questions §6
+  universe: watchlist      # watchlist | sp500 | custom
+
+llm:
+  nano:      { backend: ollama,    model: "" }
+  small:     { backend: ollama,    model: "" }
+  large:     { backend: anthropic, model: claude-sonnet-5 }
+  vision:    { backend: anthropic, model: claude-sonnet-5 }
+  embedding: { backend: ollama,    model: "" }
+  daily_token_budget: 2000000
+
+memory:
+  db_path: ~/.genesis/genesis.db
+  vault_path: ~/GenesisVault      # Open Questions §5 — dedicated vault
+  consolidation_hour: 21
+
+agents:
+  screener:  { enabled: true,  interval_sec: 300 }
+  optimizer: { enabled: true,  max_wall_min: 120 }
+  ml-signal: { enabled: false }
+
+voice:
+  stt: elevenlabs          # elevenlabs | whisper-local
+  tts: elevenlabs          # elevenlabs | piper-local
+  fallback_to_local: true
+
+logging:
+  # Observability.md — two non-episodic streams. The SQLite Episodic Log is Phase 1.
+  console: true
+  level: info                       # debug | info | warn | error
+  jsonl_path: ~/.genesis/logs/genesis.jsonl
