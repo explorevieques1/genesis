@@ -20,7 +20,18 @@ and whether [[Agent — Prop Firm Guard]] is in scope at all.
 **Recommendation:** Alpaca paper for v1 — the official MCP server exists and is the
 cleanest reference for tool schema/auth/error shape. Add futures once the gate is proven.
 
-> **Decision:**
+> **Decision (2026-08-30):** **Alpaca paper, US equities, for v1.** Takes the
+> recommendation as written. [[Agent — Broker Adapter]] targets Alpaca paper keys;
+> [[Daemon And Cadence]] uses the US equities session calendar; sizing is in whole
+> shares, so no contract-size math in [[Agent — Portfolio And Allocation]] yet.
+> Futures are deferred until the [[Pre-Trade Risk Engine]] gate is proven, at which
+> point [[Futures Broker Options]] gets re-opened alongside §2.
+
+**If futures:** see [[Futures Broker Options]] for the survey. Tradovate direct
+API access is a dead end for prop accounts (excludes eval/funded balances
+outright). The four paths that work — TopstepX, Sierra Chart DTC, Rithmic
+R|API+, NinjaTrader ATI — are firm-dependent, so this decision is entangled with
+§2 below; resolve them together.
 
 ---
 
@@ -31,7 +42,16 @@ becomes a hard constraint in [[Pre-Trade Risk Engine]], not an add-on.
 
 **Which firm(s):** FTMO / TopStep / Apex / none
 
-> **Decision:**
+> **Decision (2026-08-30):** **None for v1.** No funded account in play, so
+> [[Prop Firm Rules]] stays in [[Build Order|Phase 10]] and [[Agent — Prop Firm Guard]]
+> is out of scope. The [[Pre-Trade Risk Engine]] is built against [[Risk Envelope]]
+> alone — but its rule evaluation stays pluggable, because prop rules become *hard
+> constraints inside the gate* if this is ever revisited, not a layer bolted on top.
+
+**Consequence for §1:** Topstep → build against TopstepX (official API, reference
+MCP already exists). Apex or most others → target Sierra Chart DTC first, Rithmic
+R|API+ as the lower-latency follow-on, NinjaTrader ATI as the NT8-only fallback.
+Full detail in [[Futures Broker Options]].
 
 ---
 
@@ -46,7 +66,10 @@ becomes a hard constraint in [[Pre-Trade Risk Engine]], not an add-on.
 
 **Alternative:** all-Node with a Python sidecar only for backtests. Simpler deploy, worse ecosystem fit.
 
-> **Decision:**
+> **Decision (2026-08-30):** **Python core + Node/Electron dashboard.** Takes the
+> recommendation as written. The boundary is **HTTP + WebSocket, defined by
+> [[Event Schema]]** — the dashboard is a consumer of that contract and holds no
+> business logic of its own. Nothing safety-critical crosses into Node.
 
 ---
 
@@ -68,7 +91,10 @@ New dedicated `GenesisVault/` vs. a folder inside an existing vault.
 [[Memory Consolidation]] write frequently and would churn an existing vault's
 sync/graph. See [[Obsidian Vault Schema]].
 
-> **Decision:**
+> **Decision (2026-08-30):** **Dedicated vault at `~/GenesisVault/`.** Matches the
+> `memory.vault_path` default already in the [[Config And Secrets]] sketch. Note
+> this is the *agent-written* vault — distinct from `Genesis Markdown/`, which is
+> the hand-written system spec and stays in the repo.
 
 ---
 
@@ -152,7 +178,19 @@ Where do marked-up charts actually appear?
 > of truth — otherwise level-outcome tracking in [[Knowledge Graph]] dies, and
 > that is the capability no charting platform can give us.
 
-**Still open:** does the CDP remote-debugging port actually open on TradingView
-Desktop? A 30-minute spike gates the whole server — see
-[[genesis-tradingview-mcp]]. If that door is shut, fall back to embedding
-lightweight-charts in the [[Dashboard]] and applying markup by hand.
+**CDP spike (2026-08-30): YES — qualifier: transport is raw CDP, not Playwright.**
+
+The remote-debugging port opens and a full CDP attach works against the live,
+signed-in app (TradingView Desktop 3.3.0 / Electron 38.2.2 / Chromium 140).
+`Runtime.evaluate` read the active symbol off the real chart. [[genesis-tradingview-mcp]]
+is viable, the decision above stands, and the lightweight-charts fallback is **not**
+needed as the primary surface — it remains only the headless/no-GUI path.
+
+Two qualifiers, both recorded in full in [[genesis-tradingview-mcp]]:
+
+1. **Raw CDP websocket, not Playwright.** `connect_over_cdp` connects the socket
+   then hangs to a 180 s timeout; raw CDP on the same endpoint answers in
+   milliseconds.
+2. **`ELECTRON_RUN_AS_NODE` must be unset when spawning the app**, or the launch
+   fails in a way that impersonates the NO answer. See
+   [[Error Handling And Degradation]].
