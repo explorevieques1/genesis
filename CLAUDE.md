@@ -107,20 +107,33 @@ If a task seems to require breaking one of these, stop and say so.
 
 ## Trading corpus
 
-`INDEX.md` is a curated index of open-source trading repos — the reference
-library for patterns and implementations, **not code to paste**.
+31 open-source trading repos — the reference library for patterns and
+implementations, **not code to paste**.
 
-- Read `INDEX.md` first; it points at specific `repo/path/file.py` entries.
+**Location: `corpus/` in this repo — a symlink to an external SSD**
+(`/run/media/gzacc2002/Extreme SSD/Github Repos/Trading`). 22 GB, deliberately
+not copied to the internal disk and not in git.
+
+```bash
+python3 scripts/check_corpus.py --paths   # is it mounted? do all citations resolve?
+bash scripts/link_corpus.sh               # recreate the symlink after a remount
+```
+
+**If `corpus/` does not resolve, the drive is unplugged.** Say so and stop — do
+not substitute a guess about what the code probably looks like.
+
+- Read `INDEX.md` first; it points at specific files. Citations are
+  **repo-relative**: under `### vectorbt`, the entry `vectorbt/portfolio/` means
+  `corpus/vectorbt/vectorbt/portfolio/`.
 - Delegate digging to the `trading-researcher` subagent. Ask for concrete file
   references and short snippets — never file dumps.
 - Cite `repo/path/file.py` when you borrow an idea.
-- **Never modify a cloned repo.** They are read-only reference.
+- **Never modify a repo under `corpus/`.** Read-only reference — enforced by a
+  deny rule in `.claude/settings.json`.
 - `80-Repos/Trading Corpus Index.md` maps each Genesis component to the corpus
   repo it should learn from.
-
-⚠️ **Most of the corpus is not cloned on this machine yet.** Only
-`~/Projects/Nautilus/` is present. Before relying on an `INDEX.md` path, check it
-exists. `bash build_index.sh` regenerates `INDEX.auto.md` after cloning.
+- If a cited path has gone stale (upstream renamed it), **fix `INDEX.md`** rather
+  than working around it, then re-run the checker.
 
 ---
 

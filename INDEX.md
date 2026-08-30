@@ -63,12 +63,17 @@ Best for: microstructure, queue modeling, maker strategies. (Rust + Python)
 - `examples/` — Binance/Bybit market-making notebooks
 
 ### machine-learning-for-trading (Stefan Jansen book code)
-40+ chapters, end-to-end ML strategy pipelines. Best for: feature engineering,
+27 chapters, end-to-end ML strategy pipelines. Best for: feature engineering,
 alpha factors, backtesting ML signals, portfolio construction.
-- `04_alpha_factor_research/` — factor construction + evaluation
-- `05_strategy_evaluation/` — backtesting, risk metrics
-- `08_ml4t_workflow/` — full workflow
-- `24_alpha_factor_investing_with_deep_learning/` etc.
+- `08_financial_features/` — factor construction + evaluation
+- `16_strategy_simulation/` — backtesting, strategy evaluation
+- `19_risk_management/` — risk metrics and controls
+- `11_ml_pipeline/` — the full ML4T workflow
+- `17_portfolio_construction/` — weights, constraints, rebalancing
+- `22_rag_financial_research/` — retrieval over financial documents
+- `23_knowledge_graphs/` — entity graphs over market data
+- `24_autonomous_agents/` — LLM agents that research and trade
+- `25_live_trading/`, `26_mlops_governance/` — paper→live, model governance
 
 ---
 
@@ -84,7 +89,7 @@ risk measures). Best for: allocation, risk budgeting.
 ### PyPortfolioOpt
 Practical portfolio optimization. Best for: efficient frontier, Black-Litterman,
 converting weights to whole-share orders.
-- `pypfopt/efficient_frontier.py`, `expected_returns.py`, `risk_models.py`
+- `pypfopt/efficient_frontier/`, `pypfopt/expected_returns.py`, `pypfopt/risk_models.py`
 - `pypfopt/discrete_allocation.py` — weights → integer share counts
 - `pypfopt/black_litterman.py`, `hierarchical_portfolio.py`
 
@@ -96,7 +101,7 @@ max drawdown, alpha/beta, tail ratio formulas.
 ### pyfolio
 Tearsheet generation over returns/positions/transactions. Best for: reporting,
 rolling risk, drawdown tables.
-- `pyfolio/tears.py`, `pyfolio/timeseries.py`, `pyfolio/risk.py`
+- `pyfolio/tears.py`, `pyfolio/timeseries.py`, `pyfolio/perf_attrib.py`
 
 ### FinancePy
 Derivatives pricing + risk (rates, FX, equity, credit). Best for: option greeks,
@@ -125,7 +130,8 @@ RL env design, state/reward shaping, portfolio-allocation envs.
 ### FinRL-Meta
 Data pipelines + hundreds of market environments for FinRL. Best for: data
 processors (yfinance, alpaca, ccxt), benchmark envs.
-- `finrl_meta/data_processors/`
+- `meta/data_processors/` — yfinance, alpaca, ccxt adapters
+- `meta/env_stock_trading/`, `meta/env_portfolio_allocation/` — benchmark envs
 
 ### FinGPT
 Open financial LLMs — sentiment, forecasting, RAG, fine-tuning recipes. Best for:

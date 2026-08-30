@@ -33,5 +33,9 @@ Genesis Markdown/.obsidian/workspace.json
 Genesis Markdown/.obsidian/workspace-mobile.json
 Genesis Markdown/.trash/
 
+# The trading corpus lives on an external SSD; `corpus` is a symlink to it.
+# Machine-local by definition — recreate with scripts/link_corpus.sh
+/corpus
+
 # OS
 .DS_Store

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/run/media/gzacc2002/Extreme SSD/Github Repos/Trading"
+    ],
+    "deny": [
+      "Edit(//run/media/gzacc2002/Extreme SSD/Github Repos/Trading/**)",
+      "Write(//run/media/gzacc2002/Extreme SSD/Github Repos/Trading/**)"
+    ]
+  }
+}

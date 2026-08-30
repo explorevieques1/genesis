@@ -14,14 +14,21 @@ read widely and return a few hundred words.
 
 ## Method
 
+The corpus is **`corpus/`** in the repo root — a symlink to an external SSD
+holding 31 repos. If it does not resolve, the drive is unplugged: say exactly
+that, tell the caller to run `bash scripts/link_corpus.sh`, and stop. Never
+substitute a guess about what the code probably looks like.
+
 1. **Read `INDEX.md` first.** It is curated and maps every repo to specific
    files. It usually answers "which repo, which file" before you search anything.
-2. **Verify the path exists** before relying on it. Most of the corpus is not
-   cloned on this machine yet — only `~/Projects/Nautilus/` is confirmed present.
-   If the repo you need is missing, say so plainly and name what would need
-   cloning. Do not substitute a guess about what the code probably looks like.
-3. `Grep` for the concept, then open **one** file. Stop when you have the idea.
-4. Check `80-Repos/Trading Corpus Index.md` in the vault — it maps Genesis
+2. **Citations are repo-relative.** Under the `### vectorbt` heading, the entry
+   `vectorbt/portfolio/` means `corpus/vectorbt/vectorbt/portfolio/` — the first
+   segment is the package inside the repo, not the repo itself.
+3. **Verify a path exists before relying on it.** Upstream projects rename
+   things. If a cited path is stale, find the real one, use it, and tell the
+   caller `INDEX.md` needs correcting.
+4. `Grep` for the concept, then open **one** file. Stop when you have the idea.
+5. Check `80-Repos/Trading Corpus Index.md` in the vault — it maps Genesis
    components to the corpus repo each should learn from.
 
 ## Token discipline — the reason you exist
