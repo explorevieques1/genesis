@@ -13,7 +13,7 @@ status: design
 
 **Status: design only. No code yet.** This vault is the spec Claude Code builds from.
 
-Start here → [[How To Use This Vault]] · [[System Overview]] · [[Agent Index]] · [[Build Order]]
+Start here → [[How To Use This Vault]] · [[Biological Design]] · [[System Overview]] · [[Agent Index]] · [[Build Order]]
 
 Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
 
@@ -42,6 +42,7 @@ Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
 - [[Conventions]] — code, logging, and spec-file house style
 
 ### 10 — Architecture
+- [[Biological Design]] — **the organising metaphor**: which organ is this, reflex or judgement?
 - [[System Overview]] — topology diagram, the whole picture
 - [[Orchestrator]] · [[Voice Stack]] · [[Approval Modes]]
 - [[Task Bus]] · [[Daemon And Cadence]] · [[Agent Contract]]

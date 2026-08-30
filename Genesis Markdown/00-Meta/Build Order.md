@@ -10,6 +10,19 @@ previous one's exit criteria pass.
 
 Resolve [[Open Questions]] before Phase 1.
 
+> [!important] The order is biological, not arbitrary
+> [[Biological Design]] explains *why* the phases fall this way. The spine and
+> heartbeat come first (Phase 1) because nothing can live without them. Senses
+> come before hands: read-only agents in Phase 4, execution not until Phase 7.
+> Within Phase 7 the ledger and the risk engine are built **before** any broker
+> code, because **proprioception comes before ambition** — never an actuator
+> before the sense that verifies it acted.
+>
+> When planning work inside a phase, ask the same question the design note asks:
+> *which organ is this, and is it reflex or judgement?* Reflexes are cheap,
+> deterministic and safe, and most things you were about to give a model to are
+> reflexes.
+
 ---
 
 ## Phase 0 — Decide and scaffold

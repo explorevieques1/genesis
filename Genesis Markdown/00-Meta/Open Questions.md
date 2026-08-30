@@ -211,3 +211,31 @@ Two qualifiers, both recorded in full in [[genesis-tradingview-mcp]]:
 2. **`ELECTRON_RUN_AS_NODE` must be unset when spawning the app**, or the launch
    fails in a way that impersonates the NO answer. See
    [[Error Handling And Degradation]].
+
+---
+
+### 12. Self-model retrieval — how far does interoception go?
+[[Biological Design]] establishes that **this vault is the system's body map**:
+when an agent needs to know how a component behaves it should *read* rather than
+*infer*. The principle is settled. The mechanism is not.
+
+**Open:**
+
+1. **Who may read the self-model?** Every agent, or only the [[Orchestrator]]?
+   Broad access is more capable and much more expensive per call.
+2. **Retrieved how?** The vault is markdown on disk, so `Glob` + `Grep` already
+   work. The alternatives are indexing it into the [[Vector Store]], or running
+   [[Repo — Lithium Codebase]] over it (§9). Entangled with §9 — decide together.
+3. **Does the self-model reach the system prompt, or only retrieval?** A standing
+   summary of the anatomy costs tokens on every call; retrieval costs latency on
+   the calls that need it. [[Recall Pathways]]' gate exists for exactly this
+   trade.
+4. **Is the map ever written by the system?** Dangerous and interesting. An agent
+   that can edit its own body map can make the map lie, which is proprioceptive
+   drift by another route. Default: **read-only to agents**, humans and the
+   `/impl` command write it. Revisit only with a strong reason.
+
+Not blocking [[Build Order|Phase 2]]. Blocking Phase 4, when read-only agents
+first need to reason about components they did not write.
+
+> **Decision:**

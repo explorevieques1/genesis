@@ -12,7 +12,7 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**97 notes.** Status: ○ spec · ◐ building · ● built
+**98 notes.** Status: ○ spec · ◐ building · ● built
 
 
 ## 00-Meta
@@ -32,6 +32,7 @@ while reading, this is how you find the file behind it.
 |---|---|---|---|
 | `Agent Contract` | `Genesis Markdown/10-Architecture/Agent Contract.md` | ◐ | [src/genesis/agents/base.py, tests/agents/test_contract.py] |
 | `Approval Modes` | `Genesis Markdown/10-Architecture/Approval Modes.md` | ○ |  |
+| `Biological Design` | `Genesis Markdown/10-Architecture/Biological Design.md` | ○ |  |
 | `Charting Engine` | `Genesis Markdown/10-Architecture/Charting Engine.md` | ○ |  |
 | `Config And Secrets` | `Genesis Markdown/10-Architecture/Config And Secrets.md` | ◐ | [src/genesis/config.py, src/genesis/default_config.yaml, tests/test_config.py] |
 | `Daemon And Cadence` | `Genesis Markdown/10-Architecture/Daemon And Cadence.md` | ◐ | [src/genesis/daemon/daemon.py, src/genesis/daemon/calendar.py, src/genesis/daemon/scheduler.py, src/genesis/daemon/supervisor.py, tests/daemon/] |

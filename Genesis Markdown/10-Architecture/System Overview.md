@@ -9,6 +9,17 @@ implemented_by: []
 
 The whole picture in one note. Everything else is a zoom-in.
 
+> [!important] Read [[Biological Design]] first
+> Genesis is built as an **organism**, not as a chatbot with tools attached. The
+> LLM is one organ; the agent is the whole loop — perception, memory, rhythm,
+> reflex, action and homeostasis together.
+>
+> That note holds the biology → architecture map and the three principles the
+> topology below is shaped by: the **reflex arc** (safety checks are spinal, not
+> prompted), the **afferent/efferent split** (read and write paths are
+> structurally different), and **proprioception before ambition** (never build an
+> actuator before the sense that verifies it acted).
+
 ## Topology
 
 ```
@@ -55,6 +66,7 @@ The whole picture in one note. Everything else is a zoom-in.
 
 | Layer | Note | Responsibility |
 |---|---|---|
+| *Framing* | [[Biological Design]] | Which organ is this, and is it reflex or judgement? |
 | Voice | [[Voice Stack]] | Capture, wake, STT, TTS, barge-in, earcons |
 | Coordination | [[Orchestrator]] | Intent → plan → route → gate → speak |
 | Transport | [[Task Bus]] | Priority lanes, persistence, backpressure, events |

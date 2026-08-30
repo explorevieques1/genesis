@@ -4,8 +4,54 @@ A voice-driven, multi-agent autonomous trading system. Roughly 30 agents in five
 families, an always-on daemon, a five-layer memory fabric, and an unbypassable
 pre-trade risk gate.
 
-**The specification lives in `Genesis Markdown/` — an Obsidian vault, 91 notes.**
+**The specification lives in `Genesis Markdown/` — an Obsidian vault.**
 It is not background reading. It is the source of truth for what gets built.
+
+---
+
+## Genesis is built as an organism
+
+Read `10-Architecture/Biological Design.md` before designing anything. It is the
+organising metaphor for the whole system, and it changes what you build, not
+just how you describe it.
+
+**The LLM is one organ. The agent is the whole loop** — perception, memory,
+rhythm, reflex, action, homeostasis. Most agent failures are not reasoning
+failures; they are missing reflexes, memory that was never written, a tool that
+lied about succeeding, or a loop with no circuit breaker. None of those are
+fixed by a better prompt, so don't reach for one.
+
+Three principles constrain code directly:
+
+1. **The reflex arc.** The fast path never waits for the slow path. A limit
+   check, a retry decision, a kill switch are *spinal* — deterministic code,
+   sub-millisecond, incapable of hallucinating. `tier: none` components are not
+   "agents without a model yet"; they are spinal cord, and giving one a model is
+   the bug. **A reflex cannot be talked out of firing by a persuasive prompt** —
+   which is the entire reason safety lives there and not in an instruction.
+2. **Afferent ≠ efferent.** Read paths and write paths are structurally
+   different, like sensory and motor nerves. Reads are cheap, safe, retryable,
+   parallel. Writes need idempotency keys, authorisation, ordering, and complete
+   audit. Never put them in one undifferentiated tool list.
+3. **Proprioception before ambition.** Never build an actuator before the sense
+   that verifies it acted. A system that can act but cannot perceive its own
+   state is the dangerous configuration, and its failure mode — drift between
+   believed and actual state — is the one that loses money *quietly*.
+
+Four places the metaphor breaks, each a real constraint: weights are frozen (no
+self-improvement — the feedback loop is explicit and runs outside the daemon);
+amnesia is the default (continuity is manufactured, memory is a feature you
+build); there is no self-preservation drive (the kill switch must be external and
+outside the agent's control); process death is not cell death (one daemon dying
+takes everything down).
+
+**The metaphor is a heuristic, not an argument.** A design is not correct because
+it is biological. Where it conflicts with `50-Risk/Safety Invariants.md`, the
+invariants win.
+
+When you add a component, place it on the map first: *which organ is this, and is
+it reflex or judgement?* If it has no biological role, question whether it should
+exist.
 
 ---
 
@@ -43,6 +89,7 @@ for that component. Treat it as the next-steps index, not decoration.
 | If you are… | Read |
 |---|---|
 | Starting any session | `Genesis Markdown/Genesis Agent — Home.md` |
+| Designing *anything* | `10-Architecture/Biological Design.md` — which organ, reflex or judgement? |
 | Deciding what to build next | `00-Meta/Build Order.md` |
 | Building an agent | `20-Agents/<Family>/Agent — <Name>.md` — and only that one |
 | Adding *any* new agent | `10-Architecture/Agent Contract.md` first |
@@ -55,6 +102,7 @@ for that component. Treat it as the next-steps index, not decoration.
 | Picking a model tier | `10-Architecture/LLM Model Tiers.md` |
 | Reusing prior work | `80-Repos/Repo Map.md` |
 | Naming, style, file layout | `00-Meta/Conventions.md` |
+| Deciding if something needs an LLM | `10-Architecture/Biological Design.md` §reflex arc + `10-Architecture/LLM Model Tiers.md` |
 | Blocked on a design decision | `00-Meta/Open Questions.md` — ask, don't guess |
 
 ---
@@ -100,6 +148,11 @@ before you think to open that note:
    is broken.
 5. **Default approval mode is `confirm`.** Never ship a default that trades
    unattended.
+
+6. **The body map may not lie.** Spec and code move in the same commit. Under
+   `Biological Design` this is not tidiness — a note that describes an organ the
+   system does not have is **proprioceptive drift**, and the system will then
+   reason confidently about itself and be wrong. It ranks with reconciliation.
 
 If a task seems to require breaking one of these, stop and say so.
 
