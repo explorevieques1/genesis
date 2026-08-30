@@ -12,7 +12,7 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**95 notes.** Status: ○ spec · ◐ building · ● built
+**96 notes.** Status: ○ spec · ◐ building · ● built
 
 
 ## 00-Meta
@@ -33,13 +33,13 @@ while reading, this is how you find the file behind it.
 | `Agent Contract` | `Genesis Markdown/10-Architecture/Agent Contract.md` | ○ |  |
 | `Approval Modes` | `Genesis Markdown/10-Architecture/Approval Modes.md` | ○ |  |
 | `Charting Engine` | `Genesis Markdown/10-Architecture/Charting Engine.md` | ○ |  |
-| `Config And Secrets` | `Genesis Markdown/10-Architecture/Config And Secrets.md` | ○ |  |
+| `Config And Secrets` | `Genesis Markdown/10-Architecture/Config And Secrets.md` | ◐ | [src/genesis/config.py, src/genesis/default_config.yaml, tests/test_config.py] |
 | `Daemon And Cadence` | `Genesis Markdown/10-Architecture/Daemon And Cadence.md` | ○ |  |
 | `Error Handling And Degradation` | `Genesis Markdown/10-Architecture/Error Handling And Degradation.md` | ○ |  |
 | `LLM Model Tiers` | `Genesis Markdown/10-Architecture/LLM Model Tiers.md` | ○ |  |
 | `Market Data Sources` | `Genesis Markdown/10-Architecture/Market Data Sources.md` | ○ |  |
 | `Markup Spec` | `Genesis Markdown/10-Architecture/Markup Spec.md` | ○ |  |
-| `Observability` | `Genesis Markdown/10-Architecture/Observability.md` | ○ |  |
+| `Observability` | `Genesis Markdown/10-Architecture/Observability.md` | ◐ | [src/genesis/observability.py, src/genesis/cli.py, tests/test_observability.py] |
 | `Orchestrator Tools` | `Genesis Markdown/10-Architecture/Orchestrator Tools.md` | ○ |  |
 | `Orchestrator` | `Genesis Markdown/10-Architecture/Orchestrator.md` | ○ |  |
 | `System Overview` | `Genesis Markdown/10-Architecture/System Overview.md` | ○ |  |
@@ -61,6 +61,7 @@ while reading, this is how you find the file behind it.
 | `Agent — Order Manager` | `Genesis Markdown/20-Agents/Execution/Agent — Order Manager.md` | ○ |  |
 | `Agent — Position And PnL Accountant` | `Genesis Markdown/20-Agents/Execution/Agent — Position And PnL Accountant.md` | ○ |  |
 | `Execution Family` | `Genesis Markdown/20-Agents/Execution/Execution Family.md` | ○ |  |
+| `Futures Broker Options` | `Genesis Markdown/20-Agents/Execution/Futures Broker Options.md` | ○ |  |
 | `Agent — Backtest Vs Live Drift` | `Genesis Markdown/20-Agents/Journal/Agent — Backtest Vs Live Drift.md` | ○ |  |
 | `Agent — Digest` | `Genesis Markdown/20-Agents/Journal/Agent — Digest.md` | ○ |  |
 | `Agent — Insight Miner` | `Genesis Markdown/20-Agents/Journal/Agent — Insight Miner.md` | ○ |  |
