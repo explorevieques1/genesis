@@ -1,0 +1,88 @@
+{
+  "nodes": [
+    {"id":"user","type":"text","text":"# 🎙️ You\n\nVoice in / voice out","x":-200,"y":-560,"width":260,"height":110,"color":"5"},
+
+    {"id":"orch","type":"file","file":"10-Architecture/Orchestrator.md","x":160,"y":-580,"width":320,"height":150,"color":"5"},
+    {"id":"voice","type":"file","file":"10-Architecture/Voice Stack.md","x":540,"y":-580,"width":260,"height":150,"color":"5"},
+    {"id":"vux","type":"file","file":"60-UI/Voice UX.md","x":860,"y":-580,"width":220,"height":150,"color":"5"},
+
+    {"id":"bus","type":"file","file":"10-Architecture/Task Bus.md","x":160,"y":-360,"width":320,"height":120,"color":"6"},
+    {"id":"daemon","type":"file","file":"10-Architecture/Daemon And Cadence.md","x":540,"y":-360,"width":280,"height":120,"color":"6"},
+    {"id":"contract","type":"file","file":"10-Architecture/Agent Contract.md","x":-240,"y":-360,"width":300,"height":120,"color":"6"},
+
+    {"id":"index","type":"file","file":"20-Agents/Agent Index.md","x":160,"y":-160,"width":320,"height":110,"color":"4"},
+
+    {"id":"research","type":"file","file":"20-Agents/Research/Research Family.md","x":-560,"y":40,"width":260,"height":190,"color":"4"},
+    {"id":"charting","type":"file","file":"20-Agents/Charting/Charting Family.md","x":-260,"y":40,"width":260,"height":190,"color":"4"},
+    {"id":"strategy","type":"file","file":"20-Agents/Strategy/Strategy Family.md","x":40,"y":40,"width":260,"height":190,"color":"4"},
+    {"id":"execution","type":"file","file":"20-Agents/Execution/Execution Family.md","x":340,"y":40,"width":260,"height":190,"color":"1"},
+    {"id":"journal","type":"file","file":"20-Agents/Journal/Journal Family.md","x":640,"y":40,"width":260,"height":190,"color":"4"},
+
+    {"id":"gate","type":"file","file":"50-Risk/Pre-Trade Risk Engine.md","x":340,"y":300,"width":260,"height":130,"color":"1"},
+    {"id":"approval","type":"file","file":"10-Architecture/Approval Modes.md","x":640,"y":300,"width":240,"height":130,"color":"1"},
+    {"id":"kill","type":"file","file":"50-Risk/Kill Switch.md","x":920,"y":300,"width":220,"height":130,"color":"1"},
+    {"id":"envelope","type":"file","file":"50-Risk/Risk Envelope.md","x":340,"y":480,"width":260,"height":110,"color":"1"},
+    {"id":"invariants","type":"file","file":"50-Risk/Safety Invariants.md","x":640,"y":480,"width":240,"height":110,"color":"1"},
+
+    {"id":"mcp","type":"file","file":"30-MCP/MCP Gateway.md","x":-260,"y":300,"width":260,"height":130,"color":"2"},
+    {"id":"catalog","type":"file","file":"30-MCP/MCP Server Catalog.md","x":-560,"y":300,"width":260,"height":130,"color":"2"},
+
+    {"id":"memory","type":"file","file":"40-Memory/Memory Fabric.md","x":-260,"y":540,"width":260,"height":150,"color":"3"},
+    {"id":"recall","type":"file","file":"40-Memory/Recall Pathways.md","x":-560,"y":540,"width":260,"height":150,"color":"3"},
+    {"id":"graph","type":"file","file":"40-Memory/Knowledge Graph.md","x":-860,"y":540,"width":260,"height":150,"color":"3"},
+    {"id":"ledger","type":"file","file":"40-Memory/Trade Ledger.md","x":40,"y":540,"width":260,"height":150,"color":"1"},
+    {"id":"vault","type":"file","file":"40-Memory/Obsidian Vault Schema.md","x":-260,"y":760,"width":260,"height":120,"color":"3"},
+
+    {"id":"dash","type":"file","file":"60-UI/Dashboard.md","x":920,"y":40,"width":220,"height":190,"color":"5"},
+
+    {"id":"schemas","type":"file","file":"70-Schemas/Data Model Overview.md","x":40,"y":760,"width":260,"height":120,"color":"6"},
+    {"id":"corpus","type":"file","file":"80-Repos/Trading Corpus Index.md","x":-860,"y":300,"width":260,"height":130,"color":"6"},
+    {"id":"repos","type":"file","file":"80-Repos/Repo Map.md","x":-860,"y":40,"width":260,"height":190,"color":"6"},
+
+    {"id":"build","type":"file","file":"00-Meta/Build Order.md","x":920,"y":540,"width":220,"height":140,"color":"6"},
+    {"id":"home","type":"file","file":"Genesis Agent — Home.md","x":-200,"y":-780,"width":260,"height":100,"color":"5"},
+
+    {"id":"note1","type":"text","text":"**The order path is a straight line.**\n\nProposal → sizing → risk gate → approval mode → order manager → broker.\n\nA human clicking *buy* enters at the same place as an agent.","x":340,"y":650,"width":300,"height":170,"color":"1"},
+    {"id":"note2","type":"text","text":"**Two loops, not on/off.**\n\nMarket open: reactive, fast — scan, watch levels, manage risk.\n\nMarket closed: reflective, deep — backtest, optimize, mine the journal.","x":640,"y":650,"width":300,"height":170,"color":"6"}
+  ],
+  "edges": [
+    {"id":"e1","fromNode":"home","fromSide":"bottom","toNode":"user","toSide":"top"},
+    {"id":"e2","fromNode":"user","fromSide":"right","toNode":"orch","toSide":"left","label":"speaks"},
+    {"id":"e3","fromNode":"orch","fromSide":"right","toNode":"voice","toSide":"left"},
+    {"id":"e4","fromNode":"voice","fromSide":"right","toNode":"vux","toSide":"left"},
+    {"id":"e5","fromNode":"orch","fromSide":"bottom","toNode":"bus","toSide":"top","label":"dispatches"},
+    {"id":"e6","fromNode":"daemon","fromSide":"left","toNode":"bus","toSide":"right","label":"schedules"},
+    {"id":"e7","fromNode":"contract","fromSide":"right","toNode":"bus","toSide":"left"},
+    {"id":"e8","fromNode":"bus","fromSide":"bottom","toNode":"index","toSide":"top"},
+    {"id":"e9","fromNode":"index","fromSide":"bottom","toNode":"research","toSide":"top"},
+    {"id":"e10","fromNode":"index","fromSide":"bottom","toNode":"charting","toSide":"top"},
+    {"id":"e11","fromNode":"index","fromSide":"bottom","toNode":"strategy","toSide":"top"},
+    {"id":"e12","fromNode":"index","fromSide":"bottom","toNode":"execution","toSide":"top"},
+    {"id":"e13","fromNode":"index","fromSide":"bottom","toNode":"journal","toSide":"top"},
+    {"id":"e14","fromNode":"research","fromSide":"right","toNode":"charting","toSide":"left","label":"ideas → charts"},
+    {"id":"e15","fromNode":"strategy","fromSide":"right","toNode":"execution","toSide":"left","label":"promoted"},
+    {"id":"e16","fromNode":"execution","fromSide":"bottom","toNode":"gate","toSide":"top","label":"every order"},
+    {"id":"e17","fromNode":"gate","fromSide":"right","toNode":"approval","toSide":"left"},
+    {"id":"e18","fromNode":"approval","fromSide":"right","toNode":"kill","toSide":"left"},
+    {"id":"e19","fromNode":"envelope","fromSide":"top","toNode":"gate","toSide":"bottom","label":"limits"},
+    {"id":"e20","fromNode":"invariants","fromSide":"left","toNode":"envelope","toSide":"right"},
+    {"id":"e21","fromNode":"gate","fromSide":"left","toNode":"ledger","toSide":"right","label":"records"},
+    {"id":"e22","fromNode":"mcp","fromSide":"top","toNode":"charting","toSide":"bottom","label":"tools"},
+    {"id":"e23","fromNode":"mcp","fromSide":"top","toNode":"research","toSide":"bottom","label":"tools"},
+    {"id":"e24","fromNode":"catalog","fromSide":"right","toNode":"mcp","toSide":"left"},
+    {"id":"e25","fromNode":"corpus","fromSide":"right","toNode":"catalog","toSide":"left"},
+    {"id":"e26","fromNode":"repos","fromSide":"bottom","toNode":"corpus","toSide":"top"},
+    {"id":"e27","fromNode":"mcp","fromSide":"bottom","toNode":"memory","toSide":"top"},
+    {"id":"e28","fromNode":"recall","fromSide":"right","toNode":"memory","toSide":"left"},
+    {"id":"e29","fromNode":"graph","fromSide":"right","toNode":"recall","toSide":"left"},
+    {"id":"e30","fromNode":"memory","fromSide":"right","toNode":"ledger","toSide":"left"},
+    {"id":"e31","fromNode":"memory","fromSide":"bottom","toNode":"vault","toSide":"top","label":"mirrors"},
+    {"id":"e32","fromNode":"journal","fromSide":"right","toNode":"dash","toSide":"left"},
+    {"id":"e33","fromNode":"journal","fromSide":"bottom","toNode":"memory","toSide":"right","label":"lessons"},
+    {"id":"e34","fromNode":"memory","fromSide":"top","toNode":"research","toSide":"bottom","label":"recall"},
+    {"id":"e35","fromNode":"schemas","fromSide":"left","toNode":"vault","toSide":"right"},
+    {"id":"e36","fromNode":"ledger","fromSide":"bottom","toNode":"schemas","toSide":"top"},
+    {"id":"e37","fromNode":"build","fromSide":"left","toNode":"invariants","toSide":"right"},
+    {"id":"e38","fromNode":"dash","fromSide":"bottom","toNode":"approval","toSide":"top","label":"approve here"}
+  ]
+}

@@ -1,0 +1,124 @@
+---
+title: Config And Secrets
+tags: [architecture]
+status: spec
+implemented_by: []
+---
+
+# Config And Secrets
+
+## Layers
+
+Later layers override earlier ones:
+
+1. **Defaults** — shipped in code, safe values (`approval_mode: advisory`)
+2. **Config file** — `~/.genesis/config.yaml`, human-edited, version-controllable
+3. **Environment** — secrets only, never behaviour
+4. **Runtime** — [[Dashboard]] toggles; persisted back to the config file with an audit entry
+
+Rule: **secrets in env, behaviour in config.** Never an API key in the YAML.
+
+## Config sketch
+
+```yaml
+identity:
+  wake_word: "genesis"
+  voice_id: "<elevenlabs-voice-id>"
+  persona: butler        # calm, concise, precise
+  verbosity: brief       # terse | brief | full
+
+approval:
+  mode: confirm          # advisory | confirm | auto-within-limits | halt
+  confirmation_ttl_sec: 60
+  require_ticker_in_confirmation: true
+
+risk:                    # the signed envelope — see [[Risk Envelope]]
+  max_position_pct: 5.0
+  max_portfolio_heat_pct: 6.0
+  max_daily_loss_pct: 2.0
+  max_correlated_exposure_pct: 10.0
+  symbol_allowlist: [NVDA, AMD, AVGO, SPY, QQQ]
+  session_window: { start: "09:45", end: "15:45", tz: America/New_York }
+  prop_firm: null        # or: { firm: topstep, account_size: 50000 }
+
+brokers:
+  primary:
+    kind: alpaca
+    mode: paper          # paper | live
+    # keys come from env
+
+data:
+  primary_feed: alpaca
+  realtime: false        # see [[Open Questions]] §6
+  universe: watchlist    # watchlist | sp500 | custom
+
+llm:
+  nano:  { backend: ollama, model: "<small>" }
+  small: { backend: ollama, model: "<mid>" }
+  large: { backend: anthropic, model: claude-sonnet-5 }
+  vision:{ backend: anthropic, model: claude-sonnet-5 }
+  embedding: { backend: ollama, model: "<embed>" }
+  daily_token_budget: 2000000
+
+memory:
+  db_path: ~/.genesis/genesis.db
+  vault_path: ~/GenesisVault
+  consolidation_hour: 21
+
+agents:
+  screener:   { enabled: true, interval_sec: 300 }
+  optimizer:  { enabled: true, max_wall_min: 120 }
+  ml-signal:  { enabled: false }
+
+voice:
+  stt: elevenlabs        # elevenlabs | whisper-local
+  tts: elevenlabs        # elevenlabs | piper-local
+  fallback_to_local: true
+```
+
+## Secrets
+
+| Env var | Used by |
+|---|---|
+| `ELEVENLABS_API_KEY` | [[Voice Stack]] |
+| `ANTHROPIC_API_KEY` | [[LLM Model Tiers]] large/vision |
+| `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` | [[Agent — Broker Adapter]] |
+| `MARKET_DATA_API_KEY` | data MCPs |
+| `NEWS_API_KEY` | [[Agent — News And Catalyst]] |
+
+Rules:
+- Loaded from a `.env` with `0600` permissions, or the OS keyring.
+- **Never** logged, never written to the vault, never sent to an LLM.
+- Redaction pass on everything before it's persisted (pattern: [[Repo — jarvis]]
+  auto-redaction of sensitive info before disk).
+- Live broker keys live in a **separate** env file from paper keys, and switching
+  `mode: live` requires both the config change and the live key present. Two
+  independent actions to go live — never one flag.
+
+## Settings UI
+
+Generate the settings window from config metadata rather than hand-writing forms:
+each key declares type, range, description, and whether it's runtime-editable.
+Only non-default values are written back; unknown keys are preserved.
+
+Pattern: [[Repo — jarvis]] `desktop_app/settings_window.spec.md`.
+
+## Guarded keys
+
+Some settings cannot be changed at runtime by voice or by an LLM — only by a human
+in the [[Dashboard]], with the change logged to the [[Episodic Log]]:
+
+- anything under `risk:`
+- `approval.mode` when loosening ([[Approval Modes]])
+- `brokers.*.mode`
+- `agents.*.enabled` for execution-family agents
+
+## Validation
+
+Config is validated on boot **and** on every runtime change. Invalid config does not
+start the system; it prints exactly which key is wrong and what was expected. A
+system that boots with a nonsense risk limit is worse than one that refuses to boot.
+
+## Related
+
+[[Risk Envelope]] · [[Approval Modes]] · [[Safety Invariants]] · [[Dashboard]] · [[Observability]]
