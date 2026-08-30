@@ -86,6 +86,11 @@ depth ([[Execution Family]]).
 design, auth handling, and error shapes before writing this. Also
 `nautilus_trader/execution/` for order lifecycle correctness.
 
+For a futures-at-a-prop-firm venue, that reference is equities-shaped and doesn't
+transfer directly — see [[Futures Broker Options]] for the survey of what a
+futures `place()`/`propose_order` actually talks to (TopstepX, Sierra Chart DTC,
+Rithmic R|API+, NinjaTrader ATI), and why Tradovate's own API is not on that list.
+
 ## Acceptance criteria
 
 - No tool exists that places an order without an approval id.
@@ -97,4 +102,5 @@ design, auth handling, and error shapes before writing this. Also
 ## Related
 
 [[Pre-Trade Risk Engine]] · [[Agent — Order Manager]] · [[Agent — Broker Adapter]] ·
-[[Approval Modes]] · [[Kill Switch]] · [[MCP Gateway]] · [[Execution Family]]
+[[Approval Modes]] · [[Kill Switch]] · [[MCP Gateway]] · [[Execution Family]] ·
+[[Futures Broker Options]]

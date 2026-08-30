@@ -113,4 +113,5 @@ now, painful to retrofit. See [[Open Questions]] §10.
 ## Related
 
 [[Agent — Prop Firm Guard]] · [[Risk Envelope]] · [[Pre-Trade Risk Engine]] ·
-[[Kill Switch]] · [[Trading Corpus Index]] · [[Open Questions]]
+[[Kill Switch]] · [[Trading Corpus Index]] · [[Open Questions]] ·
+[[Futures Broker Options]]

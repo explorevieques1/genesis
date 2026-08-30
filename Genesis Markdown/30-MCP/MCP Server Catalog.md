@@ -16,8 +16,10 @@ All access goes through the [[MCP Gateway]].
 
 | Server | Status | Notes |
 |---|---|---|
-| **alpaca-mcp-server** (official) | integrate + study | FastMCP + OpenAPI. Stocks/options/crypto data plus order placement. **The reference implementation** for tool schema, auth handling, and error shape — read `src/` before writing [[genesis-execution-mcp]]. |
+| **alpaca-mcp-server** (official) | integrate + study | FastMCP + OpenAPI. Stocks/options/crypto data plus order placement. **The reference implementation** for tool schema, auth handling, and error shape — read `src/` before writing [[genesis-execution-mcp]]. Equities-shaped; not a fit if the venue turns out to be futures. |
 | jesse-mcp | study | Bridge to the Jesse crypto framework. Relevant only if crypto is in scope ([[Open Questions]] §1). |
+| **topstepx-mcp** (`brandononchain`) | study | Reference MCP for the official TopstepX/ProjectX Gateway API. The pointer to fork from if [[Open Questions]] §2 resolves to Topstep — see [[Futures Broker Options]]. |
+| Tradovate MCP servers (`alexanimal`, `0xjmp`) | not usable | Both wrap Tradovate's direct API, which requires a $1,000 **live** balance and excludes prop/eval accounts outright. Dead end for a funded futures account regardless of implementation quality — see [[Futures Broker Options]]. |
 
 Execution tools are wrapped by [[genesis-execution-mcp]] so the risk gate is
 unavoidable. No agent gets raw broker access.
@@ -85,4 +87,5 @@ That checklist is the difference between "we added a server" and "we can rely on
 
 ## Related
 
-[[MCP Gateway]] · [[Trading Corpus Index]] · [[Agent Contract]] · [[Agent — Watchdog]]
+[[MCP Gateway]] · [[Trading Corpus Index]] · [[Agent Contract]] · [[Agent — Watchdog]] ·
+[[Futures Broker Options]]

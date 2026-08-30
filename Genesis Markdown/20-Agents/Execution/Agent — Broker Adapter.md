@@ -77,6 +77,11 @@ bracket has a real gap between entry fill and stop placement.
 schema, auth handling, and error shape. It's the cleanest model for the tool
 interface. Also `nautilus_trader/execution/` for multi-venue adapter design.
 
+If the venue is futures at a prop firm, that reference set doesn't cover the
+actual target — see [[Futures Broker Options]] for the survey (Tradovate's direct
+API excludes prop accounts entirely) and its own reference pointers per firm
+(TopstepX, Sierra Chart DTC, Rithmic R|API+, NinjaTrader ATI).
+
 ## Paper vs. live
 
 ```yaml
@@ -125,4 +130,4 @@ Direct broker SDK/API, wrapped by [[genesis-execution-mcp]]. No LLM
 
 [[Agent — Order Manager]] · [[Agent — Position And PnL Accountant]] ·
 [[genesis-execution-mcp]] · [[Order And Fill Schema]] · [[Config And Secrets]] ·
-[[Execution Family]]
+[[Execution Family]] · [[Futures Broker Options]]
