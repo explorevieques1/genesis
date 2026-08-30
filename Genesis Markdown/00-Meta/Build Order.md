@@ -54,6 +54,7 @@ Make it talk. No agents yet.
 - [[Voice Stack]] — mic → VAD → wake word → ElevenLabs Scribe STT
 - Intent classification (directed / ambient / follow-up / stop)
 - [[Orchestrator]] planner — decompose into a task list
+- [[Orchestrator Tools]] — the ~15 fleet-control tools it drives everything with
 - ElevenLabs streaming TTS + barge-in + earcons
 - [[Working Memory]] conversation buffer
 

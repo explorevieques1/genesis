@@ -12,7 +12,7 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**94 notes.** Status: ○ spec · ◐ building · ● built
+**95 notes.** Status: ○ spec · ◐ building · ● built
 
 
 ## 00-Meta
@@ -40,6 +40,7 @@ while reading, this is how you find the file behind it.
 | `Market Data Sources` | `Genesis Markdown/10-Architecture/Market Data Sources.md` | ○ |  |
 | `Markup Spec` | `Genesis Markdown/10-Architecture/Markup Spec.md` | ○ |  |
 | `Observability` | `Genesis Markdown/10-Architecture/Observability.md` | ○ |  |
+| `Orchestrator Tools` | `Genesis Markdown/10-Architecture/Orchestrator Tools.md` | ○ |  |
 | `Orchestrator` | `Genesis Markdown/10-Architecture/Orchestrator.md` | ○ |  |
 | `System Overview` | `Genesis Markdown/10-Architecture/System Overview.md` | ○ |  |
 | `Task Bus` | `Genesis Markdown/10-Architecture/Task Bus.md` | ○ |  |

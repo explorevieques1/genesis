@@ -82,6 +82,11 @@ The orchestrator picks the agent, not the tool. Agents pick their own tools thro
 [[MCP Gateway]]. This keeps the orchestrator's context small no matter how many
 tools exist.
 
+Its own tool surface is deliberately tiny and fixed — dispatch, observe, fleet
+control, safety, and one escape hatch. Roughly fifteen tools, none of them domain
+work. See **[[Orchestrator Tools]]** for the full surface and for how data moves
+between agents without passing through here.
+
 Routing inputs: task type → [[Agent Index]] capability table, current agent load,
 agent health from [[Agent — Watchdog]].
 
@@ -127,5 +132,5 @@ Both must pass. Neither can be skipped by an agent.
 
 ## Related
 
-[[Voice Stack]] · [[Task Bus]] · [[Approval Modes]] · [[LLM Model Tiers]] ·
-[[Working Memory]] · [[Recall Pathways]] · [[Agent Index]]
+[[Orchestrator Tools]] · [[Voice Stack]] · [[Task Bus]] · [[Approval Modes]] ·
+[[LLM Model Tiers]] · [[Working Memory]] · [[Recall Pathways]] · [[Agent Index]]
