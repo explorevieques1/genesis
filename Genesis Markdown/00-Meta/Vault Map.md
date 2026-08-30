@@ -12,7 +12,7 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**91 notes.** Status: ○ spec · ◐ building · ● built
+**92 notes.** Status: ○ spec · ◐ building · ● built
 
 
 ## 00-Meta
@@ -24,6 +24,7 @@ while reading, this is how you find the file behind it.
 | `Glossary` | `Genesis Markdown/00-Meta/Glossary.md` |  |  |
 | `How To Use This Vault` | `Genesis Markdown/00-Meta/How To Use This Vault.md` |  |  |
 | `Open Questions` | `Genesis Markdown/00-Meta/Open Questions.md` |  |  |
+| `Working With Claude Code` | `Genesis Markdown/00-Meta/Working With Claude Code.md` |  |  |
 
 ## 10-Architecture
 

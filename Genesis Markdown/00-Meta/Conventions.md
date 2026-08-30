@@ -15,6 +15,25 @@ and deliberately. Search for a related spec **before** starting work.
 
 This vault is the *system* spec; `*.spec.md` files are the *module* specs.
 
+## The spec pointer
+
+Every source file names the vault note it implements, on its first line:
+
+```python
+# Spec: Genesis Markdown/20-Agents/Research/Agent — Screener.md
+```
+
+And every buildable note names the code back, in its frontmatter:
+
+```yaml
+status: spec | building | built
+implemented_by: [src/genesis/agents/screener.py]
+```
+
+Both sides move together, in the same commit. This is what keeps the vault a
+build tracker instead of a museum — see [[Working With Claude Code]]. Run
+`python3 scripts/build_vault_map.py` after either side changes.
+
 ## Logging
 
 User-facing CLI output uses a leading emoji per line and indentation for hierarchy:

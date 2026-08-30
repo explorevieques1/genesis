@@ -69,5 +69,15 @@ in the design, not the graph.
 
 ## Recommended plugins
 
-Dataview (queries in [[Agent Index]] and [[Obsidian Vault Schema]]), Canvas (core),
-Graph analysis. None are required — every note reads fine as plain markdown.
+Dataview (queries in [[Agent Index]], [[Vault Map]] and [[Obsidian Vault Schema]]),
+Canvas (core), Graph analysis. None are required — every note reads fine as plain
+markdown.
+
+## Building from this vault
+
+Notes in the buildable sections carry `status:` (`spec` / `building` / `built`)
+and `implemented_by:` in their frontmatter, so the vault tracks the build rather
+than just describing it. [[Vault Map]] lists every note with its status and path.
+
+For the full workflow — how Claude Code is pointed at these notes, and why the
+vault is never loaded wholesale — see [[Working With Claude Code]].

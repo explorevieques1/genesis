@@ -15,6 +15,8 @@ status: design
 
 Start here → [[How To Use This Vault]] · [[System Overview]] · [[Agent Index]] · [[Build Order]]
 
+Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
+
 ---
 
 ## The four pillars
@@ -33,6 +35,8 @@ Start here → [[How To Use This Vault]] · [[System Overview]] · [[Agent Index
 ### 00 — Meta
 - [[How To Use This Vault]] — conventions, tags, how to read a spec
 - [[Build Order]] — the 10-phase plan, what to code first
+- [[Working With Claude Code]] — how this vault drives the build
+- [[Vault Map]] — generated name → path index for all notes
 - [[Open Questions]] — decisions needed before phase 1
 - [[Glossary]] — terms used throughout
 - [[Conventions]] — code, logging, and spec-file house style
