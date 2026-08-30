@@ -1,8 +1,8 @@
 ---
 title: Trade Ledger
 tags: [memory, risk]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/memory/ledger.py, tests/memory/test_ledger.py, tests/crash/test_ledger_durability.py]
 ---
 
 # Trade Ledger
@@ -32,6 +32,11 @@ when they don't, that's caught immediately rather than at reconciliation.
 | `equity_snapshots` | Mark-to-market at intervals and at session boundaries | append-only |
 | `reconciliations` | Daily comparison results against broker state | append-only |
 
+Every table above is keyed on `account_id` ([[Open Questions]] §10). Fill
+idempotency is `UNIQUE (account_id, broker_fill_id)`, so the same broker fill id
+in two accounts is two different fills, and a recovery replay reconciles to
+exactly one row per account.
+
 **`positions` is derived, not authoritative.** It can be dropped and rebuilt from
 `fills` at any time — and doing so is part of the test suite. If the rebuild
 disagrees with the stored snapshot, something is wrong and you want to know.
@@ -40,6 +45,7 @@ disagrees with the stored snapshot, something is wrong and you want to know.
 
 ```yaml
 id: fill_01J8XW
+account_id: primary           # [[Open Questions]] §10 — multi-account from day one
 order_id: ord_01J8XV
 client_order_id: gen_20260829_143100_NVDA_b_01
 broker_fill_id: "abc-123"

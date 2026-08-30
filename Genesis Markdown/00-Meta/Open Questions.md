@@ -153,12 +153,29 @@ store for [[Memory Fabric]] recall. Different access patterns.
 
 ---
 
-### 10. Multi-account
+### 10. Multi-account — RESOLVED
 One account or several (personal + funded + paper) in parallel? Multi-account means
 [[Trade Ledger]] and [[Risk Envelope]] key on `account_id` from day one — cheap now,
 expensive to retrofit.
 
-> **Decision:**
+> **Decision (2026-08-30):** **Multi-account. `account_id` is a first-class key
+> from day one.**
+>
+> Even though §1 and §2 land on a single Alpaca paper account for v1, the
+> [[Trade Ledger]] is append-only: retrofitting a key onto it later would mean
+> rewriting the one structure in the system that cannot be rewritten in place.
+> The cost asymmetry is worse than "cheap now, expensive later" — it is "cheap
+> now, or a migration of immutable history".
+>
+> Consequences, all live as of Phase 1:
+> - `fills`, `orders`, `entries`, `cash_flows`, `positions` and
+>   `equity_snapshots` all carry `account_id`.
+> - Fill idempotency is `UNIQUE (account_id, broker_fill_id)` — the same broker
+>   fill id in two accounts is two different fills.
+> - `rebuild_positions()` keys on `(account_id, symbol)`.
+> - [[Order And Fill Schema]] carries `account_id` on the order and the fill,
+>   not just `account` on the proposal.
+> - [[Risk Envelope]] limits are evaluated per account when it is built.
 
 ---
 
