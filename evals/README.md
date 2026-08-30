@@ -73,6 +73,7 @@ Judge-backed cases carry `judge_criteria` and the `requires_judge` marker from
 | `helpers.py` | `EvalCase`, `EvalResult`, `assert_meets_criteria`, `ToolCallCapture`, judge client |
 | `conftest.py` | `requires_judge` marker, `tools` and `config` fixtures, auto `eval` marking |
 | `test_scaffold.py` | self-checks for the harness — proves `pytest evals` runs something |
+| `test_*.py` (one per suite) | skipped placeholders for the suites below |
 
 ## Planned suites (Phase 2+)
 
@@ -84,6 +85,11 @@ Judge-backed cases carry `judge_criteria` and the `requires_judge` marker from
 | Agent routing | 4 | does work reach the agent that should do it? |
 | Memory recall | 4 | does the right prior context come back? |
 | Idea quality | 4 | thesis, invalidation, and confidence that means something |
+
+The first four have **skipped placeholders committed now**, each carrying the
+phase it is waiting on. They report `SKIPPED` rather than being absent, because
+a suite that is silently missing looks exactly like a suite that passes — and a
+green bar is not evidence that anything was checked.
 
 The last one is the eval that matters. `Observability.md` names **idea → trade
 conversion** and **idea outcome by confidence bucket** as the two metrics that
