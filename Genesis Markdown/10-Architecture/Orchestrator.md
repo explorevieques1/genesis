@@ -1,8 +1,8 @@
 ---
 title: Orchestrator
 tags: [architecture, core]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/orchestrator/intent.py, src/genesis/orchestrator/loop.py, src/genesis/orchestrator/answers.py, src/genesis/orchestrator/build.py, src/genesis/orchestrator/planner.py, src/genesis/orchestrator/plan.py, src/genesis/orchestrator/registry.py, src/genesis/orchestrator/runner.py, src/genesis/orchestrator/tools.py]
 ---
 
 # Orchestrator
@@ -17,7 +17,7 @@ Reference architecture: [[Repo — jarvis]] (`listening/`, `reply/planner.py`,
 
 | # | Job | Detail |
 |---|---|---|
-| 1 | **Listen** | Wake-word + ambient listening, VAD, echo rejection → [[Voice Stack]] |
+| 1 | **Listen** | Wake-word + ambient listening, VAD, echo rejection → [[10-Architecture/Voice Stack]] |
 | 2 | **Understand** | Classify each utterance: `directed` / `ambient` / `follow-up` / `stop` |
 | 3 | **Plan** | Decompose a request into an ordered task list with owners |
 | 4 | **Route** | Dispatch onto the [[Task Bus]]; hold cron jobs |
@@ -76,6 +76,38 @@ Rules:
 - **Dependencies are explicit** — the [[Task Bus]] honours them.
 - **Trivial requests skip planning** — "what time is it" needs no task list.
 
+### How the rules are enforced — built 2026-08-31
+
+The answer ladder is **reflex → plan → large tier**, and each rung only pays for
+itself when the one above declines:
+
+| Rung | Component | Cost |
+|---|---|---|
+| Deterministic answer | `answers.py` — calendar, clock | no model |
+| Plan | `planner.py` → `plan.py` → `runner.py` | one small-tier call |
+| Fail open | `reasoner.py` | one large-tier call |
+
+**The model's plan is never trusted.** `plan.py` parses it into a strict schema
+and rejects cycles, dangling and self references, duplicate ids, unknown agents,
+task types an agent does not handle, oversized args, and any unknown key. What
+survives has been checked by deterministic code, which is the [[Biological
+Design|reflex arc]] applied to planning: the safety property cannot live in the
+prompt, because an utterance can quote anything.
+
+Two constraints are structural rather than instructed:
+
+- **A plan cannot name an execution agent.** `registry.py` refuses to hold one,
+  so the catalogue the model sees never mentions the risk engine, the order
+  manager, the broker adapter or the kill switch — and validation rejects the
+  family again by name. Voice reaches execution through [[Approval Modes]] and
+  the [[Pre-Trade Risk Engine]], never through a planned task.
+- **A plan cannot choose a lane.** `dispatch` assigns `Lane.USER`, always. There
+  is no field in the plan schema to put `execution` in.
+
+**An empty catalogue costs nothing.** With no agents registered the planner
+declines *before* the model call. That is the state until Phase 4, and it means
+the planning path can be wired in now for zero tokens per turn.
+
 ## Routing
 
 The orchestrator picks the agent, not the tool. Agents pick their own tools through
@@ -132,5 +164,5 @@ Both must pass. Neither can be skipped by an agent.
 
 ## Related
 
-[[Orchestrator Tools]] · [[Voice Stack]] · [[Task Bus]] · [[Approval Modes]] ·
+[[Orchestrator Tools]] · [[10-Architecture/Voice Stack]] · [[Task Bus]] · [[Approval Modes]] ·
 [[LLM Model Tiers]] · [[Working Memory]] · [[Recall Pathways]] · [[Agent Index]]

@@ -10,13 +10,13 @@ tags: [repo]
 **The orchestrator shell blueprint.** A private, offline-first AI voice assistant —
 wake-word listening, planner, tool registry, persistent MCP runtime, memory graph,
 desktop app, and a serious evals harness. Genesis's [[Orchestrator]],
-[[Voice Stack]], [[MCP Gateway]], and [[Memory Fabric]] all borrow from it.
+[[10-Architecture/Voice Stack]], [[MCP Gateway]], and [[Memory Fabric]] all borrow from it.
 
 ## What to take
 
 | Genesis component | jarvis source |
 |---|---|
-| [[Voice Stack]] | `src/jarvis/listening/` — `wake_detection.py`, `echo_detection.py`, `transcript_buffer.py`, `state_manager.py`, `intent_judge.py` |
+| [[10-Architecture/Voice Stack]] | `src/jarvis/listening/` — `wake_detection.py`, `echo_detection.py`, `transcript_buffer.py`, `state_manager.py`, `intent_judge.py` |
 | [[Orchestrator]] planner | `src/jarvis/reply/planner.py` + `planner.spec.md` — fail-open, direct-exec for small models |
 | [[MCP Gateway]] registry | `src/jarvis/tools/registry.py`, `base.py`, `types.py` |
 | **Smart tool selection** | `src/jarvis/tools/selection.py` + `builtin/tool_search.py` + `tool_search.spec.md` |
@@ -61,7 +61,7 @@ ElevenLabs by name, on offline-first principle:
 Genesis diverges by design — you asked for ElevenLabs voice. The line Genesis holds
 instead: **voice and market data may be cloud; strategy, memory, journal, and risk
 stay local.** Audio leaves only after the local wake gate fires, and
-[[Voice Stack]] degrades to local Whisper/Piper rather than breaking.
+[[10-Architecture/Voice Stack]] degrades to local Whisper/Piper rather than breaking.
 
 See [[Open Questions]] §7. Note this is a *policy* divergence, not an architectural
 one — every pattern above still applies.
@@ -70,10 +70,10 @@ one — every pattern above still applies.
 
 From its README: primary development on macOS (Linux may lag), voice-only with no
 text chat, and "stop" during speech sometimes filtered as echo. That last one is a
-real bug to avoid — [[Voice Stack]] specifies that `stop` keywords are always
+real bug to avoid — [[10-Architecture/Voice Stack]] specifies that `stop` keywords are always
 honoured even when they look like echo.
 
 ## Related
 
-[[Orchestrator]] · [[Voice Stack]] · [[MCP Gateway]] · [[Memory Fabric]] ·
+[[Orchestrator]] · [[10-Architecture/Voice Stack]] · [[MCP Gateway]] · [[Memory Fabric]] ·
 [[Desktop Shell]] · [[Conventions]] · [[Repo Map]]

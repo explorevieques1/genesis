@@ -49,6 +49,12 @@ class _Registration:
     declaration: AgentDeclaration
     last_run: dict[int, dt.datetime] = field(default_factory=dict)
     last_cron_date: dict[int, dt.date] = field(default_factory=dict)
+    #: A transient interval override, from ``set_cadence``. Orchestrator Tools:
+    #: *"Cadence changes are transient and revert at the next market-open
+    #: transition unless written to config."* Held here rather than on the
+    #: declaration because the declaration is frozen and is what the note says
+    #: -- overwriting it would make the running system disagree with its spec.
+    interval_override_sec: int | None = None
 
 
 class Scheduler:
@@ -74,6 +80,33 @@ class Scheduler:
 
     def unregister(self, agent_id: str) -> None:
         self._registered.pop(agent_id, None)
+
+    def set_cadence(self, agent_id: str, interval_sec: int) -> bool:
+        """Transiently override an agent's interval cadences.
+
+        Returns False for an unknown agent rather than raising: the caller is
+        the orchestrator, on the voice path, and it needs to say *"I don't have
+        an agent called that"* rather than take an exception mid-sentence.
+
+        Only ``market-open`` / ``market-closed`` cadences are affected. Cron
+        times and event subscriptions are not intervals and are left alone.
+        """
+        reg = self._registered.get(agent_id)
+        if reg is None:
+            return False
+        if interval_sec <= 0:
+            raise ValueError(f"interval_sec must be positive, got {interval_sec}")
+        reg.interval_override_sec = interval_sec
+        return True
+
+    def clear_cadence_overrides(self) -> list[str]:
+        """Drop every transient override. Called on a session transition."""
+        cleared = []
+        for agent_id, reg in sorted(self._registered.items()):
+            if reg.interval_override_sec is not None:
+                reg.interval_override_sec = None
+                cleared.append(agent_id)
+        return cleared
 
     @property
     def agent_ids(self) -> list[str]:
@@ -129,7 +162,8 @@ class Scheduler:
             if last is None:
                 return True
             assert cadence.interval_sec is not None  # validated on the model
-            return (now - last).total_seconds() >= cadence.interval_sec
+            interval = reg.interval_override_sec or cadence.interval_sec
+            return (now - last).total_seconds() >= interval
 
         if cadence.type == "cron":
             assert cadence.at is not None  # validated on the model
@@ -172,9 +206,10 @@ class Scheduler:
             if cadence.type not in ("market-open", "market-closed"):
                 continue
             assert cadence.interval_sec is not None
+            interval = reg.interval_override_sec or cadence.interval_sec
             last = reg.last_run.get(index)
             candidates.append(
-                now if last is None else last + dt.timedelta(seconds=cadence.interval_sec)
+                now if last is None else last + dt.timedelta(seconds=interval)
             )
         return min(candidates) if candidates else None
 

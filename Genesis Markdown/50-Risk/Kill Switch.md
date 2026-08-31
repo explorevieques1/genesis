@@ -33,7 +33,7 @@ set mode to [[Approval Modes|`halt`]].
 
 | Trigger | Path |
 |---|---|
-| Voice: "Genesis, halt" / "stop trading" / "flatten" | Recognized in [[Voice Stack]] **before** intent classification — it does not wait for an LLM |
+| Voice: "Genesis, halt" / "stop trading" / "flatten" | Recognized in [[10-Architecture/Voice Stack]] **before** intent classification — it does not wait for an LLM |
 | [[Dashboard]] button | Direct HTTP to the kill-switch process, not through the bus |
 | Global hotkey | [[Desktop Shell]] |
 | Daily loss limit breached | [[Agent — Position And PnL Accountant]] |
@@ -109,7 +109,7 @@ Leaving `halt` is deliberate and manual:
 - Cancels in under 1 s with 50 working orders
 - Protective stops survive `halt`
 - Idempotent under 10 concurrent triggers
-- The voice trigger works while TTS is speaking (barge-in path, [[Voice Stack]])
+- The voice trigger works while TTS is speaking (barge-in path, [[10-Architecture/Voice Stack]])
 - Verification catches a cancel that silently failed
 
 Run these tests on every release. If the kill switch is broken, nothing else in

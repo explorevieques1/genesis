@@ -149,6 +149,15 @@ class Daemon:
                 "market.open" if session is SessionState.OPEN else "market.close",
                 {"from": self._last_session.value, "to": session.value},
             )
+            # Orchestrator Tools: a spoken cadence change is transient and
+            # reverts at the next session transition unless it was written to
+            # config. Reverting here rather than on a timer means "stop scanning,
+            # it's noisy" lasts exactly as long as the session it was said in.
+            reverted = self.scheduler.clear_cadence_overrides()
+            if reverted:
+                self.console.line(
+                    "\u23f1\ufe0f ", f"cadence override reverted: {', '.join(reverted)}"
+                )
         self._last_session = session
 
         # 1. restart anything whose backoff has elapsed

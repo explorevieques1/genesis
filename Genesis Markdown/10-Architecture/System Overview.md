@@ -67,7 +67,7 @@ The whole picture in one note. Everything else is a zoom-in.
 | Layer | Note | Responsibility |
 |---|---|---|
 | *Framing* | [[Biological Design]] | Which organ is this, and is it reflex or judgement? |
-| Voice | [[Voice Stack]] | Capture, wake, STT, TTS, barge-in, earcons |
+| Voice | [[10-Architecture/Voice Stack]] | Capture, wake, STT, TTS, barge-in, earcons |
 | Coordination | [[Orchestrator]] | Intent → plan → route → gate → speak |
 | Transport | [[Task Bus]] | Priority lanes, persistence, backpressure, events |
 | Scheduling | [[Daemon And Cadence]] | The forever loop; open vs. closed behaviour; cron |
@@ -103,7 +103,7 @@ See [[Daemon And Cadence]] for the schedule.
 
 You say *"Genesis, find me a long setup in semis and chart it."*
 
-1. **[[Voice Stack]]** — wake word fires, Scribe streams a transcript.
+1. **[[10-Architecture/Voice Stack]]** — wake word fires, Scribe streams a transcript.
 2. **[[Orchestrator]]** — intent = `directed`. Planner decomposes:
    `screen.sector(semis, long)` → `idea.synthesize` → `chart.markup`.
 3. **[[Task Bus]]** — three tasks queued on the `user` lane, dependency-ordered.

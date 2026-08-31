@@ -466,7 +466,8 @@ class TaskBus:
         if lane is not None:
             sql += " AND lane = ?"
             params = (int(lane),)
-        return int(self._conn.execute(sql, params).fetchone()[0])
+        with self._lock:
+            return int(self._conn.execute(sql, params).fetchone()[0])
 
     def shed(self, *, limit: int | None = None) -> int:
         """Shed oldest sheddable tasks when research depth exceeds the limit.
@@ -499,26 +500,39 @@ class TaskBus:
     # Queries
     # ------------------------------------------------------------------
 
+    # Reads take the lock too. The connection is shared across threads -- the
+    # voice loop dispatches from its worker thread while the daemon drains from
+    # its own -- and an unsynchronised SELECT against a connection that is
+    # mid-transaction on another thread returns half-written rows, which
+    # surfaces as `None is not a valid TaskState` rather than as anything that
+    # names the actual problem. A read here is microseconds; the RLock is not
+    # the bottleneck, and correctness under two threads is the whole point of
+    # putting the queue in a database.
+
     def get(self, task_id: str) -> Task | None:
-        return self._get_in(self._conn, task_id)
+        with self._lock:
+            return self._get_in(self._conn, task_id)
 
     def by_trace(self, trace_id: str) -> list[Task]:
-        rows = self._conn.execute(
-            "SELECT * FROM tasks WHERE trace_id = ? ORDER BY created_at", (trace_id,)
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tasks WHERE trace_id = ? ORDER BY created_at", (trace_id,)
+            ).fetchall()
         return [Task.from_row(r) for r in rows]
 
     def by_state(self, state: TaskState) -> list[Task]:
-        rows = self._conn.execute(
-            "SELECT * FROM tasks WHERE state = ? ORDER BY lane, created_at",
-            (state.value,),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tasks WHERE state = ? ORDER BY lane, created_at",
+                (state.value,),
+            ).fetchall()
         return [Task.from_row(r) for r in rows]
 
     def by_idempotency_key(self, key: str) -> list[Task]:
-        rows = self._conn.execute(
-            "SELECT * FROM tasks WHERE idempotency_key = ? ORDER BY created_at", (key,)
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tasks WHERE idempotency_key = ? ORDER BY created_at", (key,)
+            ).fetchall()
         return [Task.from_row(r) for r in rows]
 
     # ------------------------------------------------------------------

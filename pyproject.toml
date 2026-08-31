@@ -16,6 +16,12 @@ dependencies = [
     # DST). Getting this wrong means the system backtests during the open and
     # scans on Christmas." Hand-rolling NYSE's rules is precisely that failure.
     "exchange-calendars>=4.5",
+    # Voice Stack: the HTTP client is core because it is also how the LLM tiers
+    # and every future MCP data path talk to the world. One connection-pooling
+    # client, warmed once -- a fresh TLS handshake is 400 ms against a 400 ms
+    # budget, which is the whole latency argument in one line.
+    "httpx>=0.27",
+    "numpy>=1.26",
 ]
 
 [project.scripts]
@@ -23,6 +29,16 @@ genesis = "genesis.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Voice is a surface, not the spine (Voice Stack.md), so the audio stack is an
+# extra: a headless daemon host runs the whole system without PortAudio, and
+# `genesis voice` is the only thing that needs it. faster-whisper is here
+# rather than core for the same reason plus size -- it pulls ctranslate2 and a
+# model download, and it is only ever the local wake gate and the offline STT
+# fallback.
+voice = [
+    "sounddevice>=0.4",
+    "faster-whisper>=1.0",
+]
 
 [build-system]
 requires = ["hatchling"]

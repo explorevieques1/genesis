@@ -1,13 +1,13 @@
 ---
 title: Voice UX
 tags: [ui, voice]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/voice/speech.py]
 ---
 
 # 🗣️ Voice UX
 
-How Genesis sounds, and when it speaks. Technical pipeline: [[Voice Stack]].
+How Genesis sounds, and when it speaks. Technical pipeline: [[10-Architecture/Voice Stack]].
 
 ## Persona
 
@@ -132,5 +132,5 @@ open position.
 
 ## Related
 
-[[Voice Stack]] · [[Orchestrator]] · [[Approval Modes]] · [[Agent — Digest]] ·
+[[10-Architecture/Voice Stack]] · [[Orchestrator]] · [[Approval Modes]] · [[Agent — Digest]] ·
 [[Kill Switch]] · [[Dashboard]]

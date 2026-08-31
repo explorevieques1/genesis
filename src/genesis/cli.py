@@ -4,15 +4,22 @@
 Console style is the house style from Conventions.md: a leading emoji per line,
 indentation for hierarchy. See :mod:`genesis.observability`.
 
-Phase 0 exposes only what the Build Order's exit criteria need -- a version, and
-enough of a config surface to prove the loader works and refuses to start on a
-bad file. Fleet control (``genesis run``, ``genesis halt``) is Phase 1+.
+Three commands carry the system: ``config`` proves the loader works and refuses
+to start on a bad file, ``daemon`` runs the spine, and ``voice`` is the surface
+you talk to.
+
+``daemon`` matters more than its size suggests. The [[Task Bus]] is durable, so
+a plan dispatched by voice survives with or without something to run it -- but
+survives *unexecuted*. Until this command existed the queue had no consumer
+outside the test suite, which meant Phase 1's spine had never actually run.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import threading
+import time
 from pathlib import Path
 
 from genesis import __version__
@@ -61,7 +68,177 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="overwrite an existing config file"
     )
 
+    run = sub.add_parser("daemon", help="run the daemon: the forever loop that executes tasks")
+    run.add_argument(
+        "--tick",
+        type=float,
+        default=None,
+        metavar="SEC",
+        help="seconds between ticks (default: the daemon's own cadence)",
+    )
+    run.add_argument(
+        "--once",
+        action="store_true",
+        help="boot, run a single tick, report, and exit -- a smoke test",
+    )
+
+    listen = sub.add_parser("voice", help="run the voice loop (Phase 2)")
+    listen.add_argument(
+        "--silent", action="store_true", help="run without opening the speakers"
+    )
+    listen.add_argument(
+        "--wake-model", default="tiny.en", help="local wake model size (default: tiny.en)"
+    )
+    listen.add_argument(
+        "--say", metavar="TEXT", help="speak one line and exit -- a voice smoke test"
+    )
+    listen.add_argument(
+        "--no-daemon",
+        action="store_true",
+        help="do not host a daemon; assume `genesis daemon` is running elsewhere",
+    )
+
     return parser
+
+
+def _open_bus(config: Config):
+    """The one database the daemon and the voice loop share.
+
+    Both processes open the same file. That is the intended arrangement rather
+    than a compromise: the bus is the handoff, and a plan dispatched by voice
+    is picked up by whichever daemon is running -- or waits durably until one
+    is, which is the property Phase 1 was built for.
+    """
+    from genesis.bus.bus import TaskBus
+
+    config.memory.db_path.parent.mkdir(parents=True, exist_ok=True)
+    return TaskBus(config.memory.db_path)
+
+
+def _build_daemon(config: Config, console: Console, bus):  # noqa: ANN001
+    """Assemble the daemon. No agents are registered until Phase 4.
+
+    It runs empty on purpose: the calendar advances, the bus recovers, claims
+    expire and are retried, and anything dispatched by voice is claimed and
+    fails honestly with *"no agent registered as ..."* rather than sitting
+    silently in a queue. An empty fleet that says so beats a queue nobody
+    drains.
+    """
+    from genesis.daemon.calendar import MarketCalendar
+    from genesis.daemon.daemon import Daemon
+
+    return Daemon(bus, calendar=MarketCalendar(), console=console)
+
+
+def _cmd_daemon(config: Config, console: Console, *, tick: float | None, once: bool) -> int:
+    from genesis.daemon.daemon import TICK_SEC
+
+    bus = _open_bus(config)
+    daemon = _build_daemon(config, console, bus)
+    try:
+        if once:
+            daemon.boot()
+            report = daemon.tick()
+            with console.nest():
+                console.line("\u2705", f"ran {len(report.ran)} task(s), dispatched {len(report.dispatched)}")
+            daemon.shutdown()
+            return EXIT_OK
+        daemon.run_forever(tick_sec=tick if tick is not None else TICK_SEC)
+    except KeyboardInterrupt:
+        console.info("Stopping.")
+    finally:
+        bus.close()
+    return EXIT_OK
+
+
+def _cmd_voice(
+    config: Config,
+    console: Console,
+    *,
+    silent: bool,
+    wake_model: str,
+    say: str | None,
+    no_daemon: bool = False,
+) -> int:
+    """Run the voice loop, or speak one line and exit.
+
+    ``--say`` exists because the first question about a voice stack is always
+    "does it make sound", and answering it should not require a microphone, a
+    wake word, or a quiet room.
+    """
+    from genesis.orchestrator.build import build_voice_loop
+
+    if say is not None:
+        from genesis.voice.player import Player
+        from genesis.voice.speaker import Speaker, default_backends
+        from genesis.voice.speech import speakable
+
+        backends = default_backends(config.identity.voice_id or "")
+        if not backends:
+            console.error("No TTS backend. Is ELEVENLABS_API_KEY set?")
+            return EXIT_CONFIG_ERROR
+        console.info(f"Speaking: {speakable(say)}")
+        with Player(sample_rate=24_000) as player:
+            result = Speaker(backends, player).say(say)
+        console.info(f"Outcome: {result.outcome.value}")
+        if result.detail:
+            console.warn(result.detail)
+        return EXIT_OK if result.ok else EXIT_CONFIG_ERROR
+
+    # The bus the planner dispatches onto, and -- unless told otherwise -- a
+    # daemon in this process to drain it. Without one, a dispatched plan is
+    # durably queued and never runs, which looks exactly like a hang.
+    bus = _open_bus(config)
+    daemon = None
+    daemon_thread = None
+    if not no_daemon:
+        daemon = _build_daemon(config, console, bus)
+        daemon.boot()
+        daemon_thread = threading.Thread(
+            target=daemon.run_forever, name="genesis-daemon", daemon=True
+        )
+
+    console.info("Loading the local wake model...")
+    stack = build_voice_loop(
+        config,
+        silent=silent,
+        wake_model=wake_model,
+        on_turn=_print_turn(console),
+        bus=bus,
+    )
+    for note in stack.notes:
+        console.warn(note)
+
+    if daemon_thread is not None:
+        daemon_thread.start()
+        console.info("Daemon running in this process — dispatched plans will execute.")
+    else:
+        console.warn("No daemon here — plans queue until `genesis daemon` runs.")
+
+    console.info(f"Listening. Say \"{config.identity.wake_word}\" to wake me. Ctrl-C to stop.")
+    try:
+        stack.loop.start()
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        console.info("Stopping.")
+    finally:
+        stack.close()
+        if daemon is not None:
+            daemon.shutdown()
+        bus.close()
+    return EXIT_OK
+
+
+def _print_turn(console: Console):
+    def show(turn) -> None:  # noqa: ANN001
+        if turn.intent in ("ambient", "echo"):
+            return  # the room talking, or us. Never noise on the console.
+        console.info(f'heard: "{turn.heard.strip()}"  [{turn.intent}/{turn.path}]')
+        if turn.spoken:
+            with console.nest():
+                console.info(f'said:  "{turn.spoken}"  ({turn.total_ms:.0f} ms)')
+    return show
 
 
 def _cmd_config_check(config: Config, console: Console) -> int:
@@ -132,6 +309,19 @@ def main(argv: list[str] | None = None) -> int:
             for line in str(exc).splitlines():
                 print(f"  {line}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
+
+    if args.command == "daemon":
+        return _cmd_daemon(config, console, tick=args.tick, once=args.once)
+
+    if args.command == "voice":
+        return _cmd_voice(
+            config,
+            console,
+            silent=args.silent,
+            wake_model=args.wake_model,
+            say=args.say,
+            no_daemon=args.no_daemon,
+        )
 
     if args.command == "config":
         if args.config_command == "check":

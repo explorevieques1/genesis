@@ -46,7 +46,7 @@ Last known as of 14:32 was 40 NVDA long — treat that as stale."*
 
 | Subsystem | Degraded | Fatal |
 |---|---|---|
-| [[Voice Stack]] STT/TTS | local model, worse voice | mic gone → text-only via [[Dashboard]] |
+| [[10-Architecture/Voice Stack]] STT/TTS | local model, worse voice | mic gone → text-only via [[Dashboard]] |
 | Market data | delayed quotes, label everything | no data during an open position → warn, tighten to `confirm` |
 | [[LLM Model Tiers]] large tier | small tier + caveat | none — deterministic paths keep working |
 | [[MCP Gateway]] one server | that agent's tools shrink | execution MCP down with orders working → `halt` |

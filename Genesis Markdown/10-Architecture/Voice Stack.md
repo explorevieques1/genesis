@@ -1,8 +1,8 @@
 ---
 title: Voice Stack
 tags: [architecture, voice]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/voice/capture.py, src/genesis/voice/vad.py, src/genesis/voice/wake.py, src/genesis/voice/stt.py, src/genesis/voice/tts.py, src/genesis/voice/player.py, src/genesis/voice/speaker.py, src/genesis/voice/echo.py, src/genesis/voice/reflex.py]
 ---
 
 # Voice Stack
@@ -86,13 +86,32 @@ Never hard-fail the whole system on a voice fault. Voice is a surface, not the s
 
 Target: wake → first spoken syllable **< 1.5 s** for a trivial request.
 
-| Stage | Budget |
-|---|---|
-| wake detect | 150 ms |
-| STT (streaming, to usable partial) | 300 ms |
-| intent (nano) | 100 ms |
-| plan / trivial answer | 400 ms |
-| TTS first chunk | 400 ms |
+| Stage | Budget | Measured (2026-08-30, this machine) |
+|---|---|---|
+| wake detect | 150 ms | **~1200 ms** ⚠️ — see below |
+| STT (streaming, to usable partial) | 300 ms | ~670 ms (Scribe, batch) |
+| intent (nano) | 100 ms | **0.1–3 ms** — deterministic, no model |
+| plan / trivial answer | 400 ms | <1 ms (calendar, no model) |
+| TTS first chunk | 400 ms | ~210 ms warm / ~740 ms cold |
+
+### Where the measurements changed the design
+
+**Wake detection is over budget and the budget was wrong.** The 150 ms figure
+assumed a keyword spotter that emits a timestamp. Genesis uses a local Whisper
+transcription instead, because the note *also* requires handing "the whole
+surrounding utterance" to intent classification — a spotter cannot do that, and
+would need a transcriber behind it anyway. So the ~1200 ms buys wake detection
+**and** the transcript **and** the offline STT fallback in one pass, against a
+budget line that priced only the first. It is still the dominant cost; a GPU,
+a smaller segment window, or a dedicated spotter feeding a transcriber are the
+three ways down.
+
+**The TLS handshake is a latency stage.** A fresh HTTPS connection costs ~400 ms
+against a 400 ms budget, so `ElevenLabsTTS` holds one client for the process
+life and `warm()` opens it at startup. Cold: 741 ms. Warm: 206 ms.
+
+**Intent classification does not use the nano tier.** See
+[[LLM Model Tiers]] §Measured latency. It is deterministic and ~1000x faster.
 
 Anything needing agents exceeds this — so **acknowledge immediately** with an earcon
 plus a one-liner ("Working on it — screening semis") and speak the result when it lands.
@@ -103,6 +122,13 @@ plus a one-liner ("Working on it — screening semis") and speak the result when
 Genesis deliberately diverges — see [[Open Questions]] §7. The line we hold: **voice
 and market data may be cloud; strategy, memory, journal, and risk are local.** Audio
 leaves only after the local wake gate fires.
+
+**This is enforced structurally, not by convention.** `WakeGate` owns the captured
+audio; the only way out is `take()`, which returns `None` until a *local* detector
+has fired. Nothing in the codebase hands the ring buffer to Scribe directly, so the
+invariant cannot be broken by wiring the pipeline wrong later — the same reasoning
+that puts orders behind `propose_order` → `place_approved` instead of a documented
+rule to always call the risk engine first.
 
 ## Acceptance criteria
 

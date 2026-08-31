@@ -32,7 +32,7 @@ hours ago and nobody noticed is worse than one that crashes loudly.
 | Market data feed | Connected **and fresh** — a feed serving stale quotes is not healthy |
 | Broker session | Authenticated, positions queryable, not rate-limited |
 | LLM endpoints | Reachable per tier ([[LLM Model Tiers]]) |
-| [[Voice Stack]] | Mic available, STT/TTS reachable |
+| [[10-Architecture/Voice Stack]] | Mic available, STT/TTS reachable |
 | [[Memory Fabric]] | Database writable, not locked, disk space available |
 | [[Task Bus]] | Queue depth within bounds, no lane starving |
 | [[Trade Ledger]] | Consistent, reconciled recently |

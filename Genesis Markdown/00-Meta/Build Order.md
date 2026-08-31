@@ -64,7 +64,7 @@ Reference: [[Repo — jarvis]] daemon, [[Repo — gensis-agents]] `shared/agent-
 
 Make it talk. No agents yet.
 
-- [[Voice Stack]] — mic → VAD → wake word → ElevenLabs Scribe STT
+- [[10-Architecture/Voice Stack]] — mic → VAD → wake word → ElevenLabs Scribe STT
 - Intent classification (directed / ambient / follow-up / stop)
 - [[Orchestrator]] planner — decompose into a task list
 - [[Orchestrator Tools]] — the ~15 fleet-control tools it drives everything with
@@ -74,6 +74,52 @@ Make it talk. No agents yet.
 Reference: [[Repo — jarvis]] `listening/`, `reply/planner.py`, `output/`.
 
 **Exit:** you say "Genesis, what time does the market open?" and hear a spoken answer. Ambient conversation is ignored. Saying "stop" cuts speech mid-word.
+
+### Status — 2026-08-30
+
+**Built and verified end-to-end** (synthesised speech in, spoken answer out):
+mic capture + ring buffer, VAD, local wake gate, Scribe STT with local fallback,
+streaming ElevenLabs TTS with barge-in and a fallback chain, echo filter, the
+spinal reflex table, deterministic intent classification, [[Working Memory]],
+the trivial-answer path, and `genesis voice`.
+
+The exit criterion passes: the question is answered aloud, two sentences of
+ambient conversation produce zero speech and never leave the machine, and
+"Genesis, halt" fires the reflex in ~0.1 ms.
+
+**Not built:**
+- Earcons ([[Voice UX]]).
+- Barge-in is mitigated, not solved: without acoustic echo cancellation a loud
+  speaker in an untreated room can still trigger a false interrupt. Headphones
+  or AEC closes it.
+
+### Status — 2026-08-31: planner and tool surface built
+
+The two remaining Phase 2 components are done and tested:
+
+- **[[Orchestrator Tools]]** — all sixteen, as a closed surface a test asserts
+  against. `dispatch` submits a whole DAG in one call; results move as ids and
+  `spoken_summary` only; `tighten_autonomy` cannot express a loosening;
+  `halt()` works with the [[Task Bus]] closed.
+- **[[Orchestrator]] planner** — utterance → validated task DAG → dispatch →
+  brief await → one spoken sentence, with fail-open on every failure path.
+  Slow work is acknowledged and announced when it lands, so voice never hangs
+  on a task.
+
+Also built, because the tools needed them: `set_cadence` as a transient
+scheduler override that reverts at the next session transition, and a fix to
+the bus — its read methods did not take the connection lock, so a cross-thread
+read during a write returned half-written rows.
+
+**The planner has nothing to plan for until Phase 4**, and says so cheaply: with
+an empty agent catalogue it declines *without calling a model*. Registering the
+[[Agent — Screener]] in Phase 4 is what switches planning on; no further change
+to the orchestrator is needed.
+
+Three bugs the live test caught, all fixed and regression-tested: Whisper
+rendering "halt" as "Holt" (the kill phrase silently did not fire); the
+follow-up window answering human-to-human conversation; and "what's the stop?"
+being read as the stop command.
 
 ---
 

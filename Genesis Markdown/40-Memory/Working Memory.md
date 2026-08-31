@@ -1,8 +1,8 @@
 ---
 title: Working Memory
 tags: [memory]
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/memory/working.py]
 ---
 
 # Working Memory
@@ -88,4 +88,4 @@ Working memory is in the hot path of every utterance. It must stay small.
 
 ## Related
 
-[[Memory Fabric]] · [[Episodic Log]] · [[Recall Pathways]] · [[Orchestrator]] · [[Voice Stack]]
+[[Memory Fabric]] · [[Episodic Log]] · [[Recall Pathways]] · [[Orchestrator]] · [[10-Architecture/Voice Stack]]

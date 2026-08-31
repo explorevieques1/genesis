@@ -44,7 +44,7 @@ Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
 ### 10 — Architecture
 - [[Biological Design]] — **the organising metaphor**: which organ is this, reflex or judgement?
 - [[System Overview]] — topology diagram, the whole picture
-- [[Orchestrator]] · [[Voice Stack]] · [[Approval Modes]]
+- [[Orchestrator]] · [[10-Architecture/Voice Stack]] · [[Approval Modes]]
 - [[Task Bus]] · [[Daemon And Cadence]] · [[Agent Contract]]
 - [[LLM Model Tiers]] · [[Charting Engine]] · [[Markup Spec]]
 - [[Observability]] · [[Config And Secrets]] · [[Error Handling And Degradation]]
@@ -84,7 +84,7 @@ Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
 
 ## The one-paragraph version
 
-You speak. The [[Orchestrator]] hears you via [[Voice Stack]], classifies intent,
+You speak. The [[Orchestrator]] hears you via [[10-Architecture/Voice Stack]], classifies intent,
 plans a task list, and dispatches onto the [[Task Bus]]. Specialist agents pick up
 work, reach tools through the [[MCP Gateway]], and write everything they learn into
 the [[Memory Fabric]] — which mirrors into an Obsidian vault you can read and edit.

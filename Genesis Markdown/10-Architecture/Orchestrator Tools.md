@@ -1,8 +1,8 @@
 ---
 title: Orchestrator Tools
 tags: [architecture, core]
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/orchestrator/tools.py, src/genesis/orchestrator/runner.py]
 ---
 
 # Orchestrator Tools
@@ -18,7 +18,7 @@ no orders. The orchestrator picks the *agent*; agents pick their own tools throu
 [[Orchestrator]]'s acceptance criteria are wake → first spoken word in under 1.5 s,
 and *"adding 50 MCP tools changes orchestrator latency by less than 10%."*
 
-Both hold only if this list stays **small and fixed — around 15 tools.** Every
+Both hold only if this list stays **small and fixed — sixteen tools.** Every
 domain tool added here is one the planner must weigh on every single utterance.
 That is how a voice assistant becomes slow, and it is not recoverable by tuning.
 
@@ -32,7 +32,13 @@ That is how a voice assistant becomes slow, and it is not recoverable by tuning.
 |---|---|---|
 | `dispatch` | `(tasks[]) → plan_id` | Submits a whole **DAG at once**, not one call per task. Fan-out and joins come free. |
 | `cancel` | `(plan_id \| task_id, reason)` | Reason propagates — [[Task Bus]] cancels dependents with the parent's reason attached, never silently |
-| `await` | `(plan_id, timeout_ms) → partial state` | Blocks *briefly*. On timeout returns what's done so far. |
+| `await` | `(plan_id, timeout_ms) → partial state` | Blocks *briefly*. On timeout returns what's done so far. Implemented as `await_plan` — `await` is a Python keyword. |
+
+Two things `dispatch` decides itself, never the planner: the **lane is always
+`user`**, and the **idempotency key is derived from the plan's content** — so
+dispatching an identical plan while the first is in flight adopts the live tasks
+instead of duplicating them, while dispatching it again after it finished runs it
+again. Asked twice while it runs is one scan; asked again tomorrow is a new scan.
 
 `dispatch` taking a list is the load-bearing choice. A `run_agent()`-per-call API
 forces sequential round-trips through the planner and makes parallel work
@@ -132,7 +138,11 @@ rather than going quiet. ([[Error Handling And Degradation]],
 
 ## Acceptance criteria
 
-- The orchestrator's tool count stays ≤ 15. A test asserts it.
+- The orchestrator's tool count stays ≤ 16, and the surface is *closed*: a test
+  compares the class's public members against a frozen name list, so adding a
+  tool fails a test rather than quietly costing latency forever.
+  (The tables above list sixteen; an earlier draft of this line said fifteen,
+  which never matched them. Sixteen is the real number.)
 - A three-step plan dispatches in **one** `dispatch` call.
 - Three independent tasks run in parallel, not in sequence.
 - No task payload larger than a `spoken_summary` ever enters orchestrator context —

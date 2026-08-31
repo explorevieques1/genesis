@@ -33,7 +33,7 @@ Rule: **secrets in env, behaviour in config.** Never an API key in the YAML.
 ```yaml
 identity:
   wake_word: "genesis"
-  voice_id: "<elevenlabs-voice-id>"
+  voice_id: "zmcVlqmyk3Jpn5AVYcAL"   # the configured ElevenLabs voice
   persona: butler        # calm, concise, precise
   verbosity: brief       # terse | brief | full
 
@@ -90,8 +90,9 @@ voice:
 
 | Env var | Used by |
 |---|---|
-| `ELEVENLABS_API_KEY` | [[Voice Stack]] |
+| `ELEVENLABS_API_KEY` | [[10-Architecture/Voice Stack]] |
 | `ANTHROPIC_API_KEY` | [[LLM Model Tiers]] large/vision |
+| `ANTHROPIC_WORKSPACE_ID` | [[LLM Model Tiers]] — **required** if the Anthropic key is identity-linked |
 | `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` | [[Agent — Broker Adapter]] |
 | `MARKET_DATA_API_KEY` | data MCPs |
 | `NEWS_API_KEY` | [[Agent — News And Catalyst]] |

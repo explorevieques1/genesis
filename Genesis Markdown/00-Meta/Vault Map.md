@@ -12,7 +12,12 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**98 notes.** Status: ○ spec · ◐ building · ● built
+**99 notes.** Status: ○ spec · ◐ building · ● built
+
+> [!danger] Name collisions
+> These names appear more than once, so `[[link]]` is ambiguous. Rename one:
+
+> - `Voice Stack` → `10-Architecture/Voice Stack.md`, `Voice Stack.md`
 
 
 ## 00-Meta
@@ -37,15 +42,15 @@ while reading, this is how you find the file behind it.
 | `Config And Secrets` | `Genesis Markdown/10-Architecture/Config And Secrets.md` | ◐ | [src/genesis/config.py, src/genesis/default_config.yaml, tests/test_config.py] |
 | `Daemon And Cadence` | `Genesis Markdown/10-Architecture/Daemon And Cadence.md` | ◐ | [src/genesis/daemon/daemon.py, src/genesis/daemon/calendar.py, src/genesis/daemon/scheduler.py, src/genesis/daemon/supervisor.py, tests/daemon/] |
 | `Error Handling And Degradation` | `Genesis Markdown/10-Architecture/Error Handling And Degradation.md` | ◐ | [src/genesis/errors.py, src/genesis/bus/bus.py] |
-| `LLM Model Tiers` | `Genesis Markdown/10-Architecture/LLM Model Tiers.md` | ○ |  |
+| `LLM Model Tiers` | `Genesis Markdown/10-Architecture/LLM Model Tiers.md` | ◐ | [src/genesis/llm/backend.py] |
 | `Market Data Sources` | `Genesis Markdown/10-Architecture/Market Data Sources.md` | ○ |  |
 | `Markup Spec` | `Genesis Markdown/10-Architecture/Markup Spec.md` | ○ |  |
 | `Observability` | `Genesis Markdown/10-Architecture/Observability.md` | ◐ | [src/genesis/observability.py, src/genesis/cli.py, tests/test_observability.py] |
-| `Orchestrator Tools` | `Genesis Markdown/10-Architecture/Orchestrator Tools.md` | ○ |  |
-| `Orchestrator` | `Genesis Markdown/10-Architecture/Orchestrator.md` | ○ |  |
+| `Orchestrator Tools` | `Genesis Markdown/10-Architecture/Orchestrator Tools.md` | ● | [src/genesis/orchestrator/tools.py, src/genesis/orchestrator/runner.py] |
+| `Orchestrator` | `Genesis Markdown/10-Architecture/Orchestrator.md` | ◐ | [src/genesis/orchestrator/intent.py, src/genesis/orchestrator/loop.py, src/genesis/orchestrator/answers.py, src/genesis/orchestrator/build.py, src/genesis/orchestrator/planner.py, src/genesis/orchestrator/plan.py, src/genesis/orchestrator/registry.py, src/genesis/orchestrator/runner.py, src/genesis/orchestrator/tools.py] |
 | `System Overview` | `Genesis Markdown/10-Architecture/System Overview.md` | ○ |  |
 | `Task Bus` | `Genesis Markdown/10-Architecture/Task Bus.md` | ◐ | [src/genesis/bus/bus.py, src/genesis/bus/task.py, tests/bus/test_task_bus.py] |
-| `Voice Stack` | `Genesis Markdown/10-Architecture/Voice Stack.md` | ○ |  |
+| `Voice Stack` | `Genesis Markdown/10-Architecture/Voice Stack.md` | ◐ | [src/genesis/voice/capture.py, src/genesis/voice/vad.py, src/genesis/voice/wake.py, src/genesis/voice/stt.py, src/genesis/voice/tts.py, src/genesis/voice/player.py, src/genesis/voice/speaker.py, src/genesis/voice/echo.py, src/genesis/voice/reflex.py] |
 
 ## 20-Agents
 
@@ -111,7 +116,7 @@ while reading, this is how you find the file behind it.
 | `Recall Pathways` | `Genesis Markdown/40-Memory/Recall Pathways.md` | ○ |  |
 | `Trade Ledger` | `Genesis Markdown/40-Memory/Trade Ledger.md` | ◐ | [src/genesis/memory/ledger.py, tests/memory/test_ledger.py, tests/crash/test_ledger_durability.py] |
 | `Vector Store` | `Genesis Markdown/40-Memory/Vector Store.md` | ○ |  |
-| `Working Memory` | `Genesis Markdown/40-Memory/Working Memory.md` | ○ |  |
+| `Working Memory` | `Genesis Markdown/40-Memory/Working Memory.md` | ● | [src/genesis/memory/working.py] |
 
 ## 50-Risk
 
@@ -130,7 +135,7 @@ while reading, this is how you find the file behind it.
 |---|---|---|---|
 | `Dashboard` | `Genesis Markdown/60-UI/Dashboard.md` | ○ |  |
 | `Desktop Shell` | `Genesis Markdown/60-UI/Desktop Shell.md` |  |  |
-| `Voice UX` | `Genesis Markdown/60-UI/Voice UX.md` | ○ |  |
+| `Voice UX` | `Genesis Markdown/60-UI/Voice UX.md` | ◐ | [src/genesis/voice/speech.py] |
 | `Widget Catalog` | `Genesis Markdown/60-UI/Widget Catalog.md` | ○ |  |
 
 ## 70-Schemas
@@ -162,6 +167,7 @@ while reading, this is how you find the file behind it.
 |---|---|---|---|
 | `Biological Design for Gensis Orchistrator` | `Genesis Markdown/Biological Design for Gensis Orchistrator.md` |  |  |
 | `Genesis Agent — Home` | `Genesis Markdown/Genesis Agent — Home.md` |  |  |
+| `Voice Stack` | `Genesis Markdown/Voice Stack.md` |  |  |
 
 ---
 

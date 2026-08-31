@@ -76,11 +76,53 @@ Full detail in [[Futures Broker Options]].
 ### 4. Local LLM horsepower
 GPU? VRAM? This sets how much of [[LLM Model Tiers]] stays offline.
 
-- No GPU → nano/small tiers go hosted-cheap; latency budget for [[Voice Stack]] tightens.
+- No GPU → nano/small tiers go hosted-cheap; latency budget for [[10-Architecture/Voice Stack]] tightens.
 - 24GB+ → wake, intent, recall gate, tool routing, and summarisation all run local;
   only orchestrator reasoning and vision go hosted.
 
-> **Decision:**
+**Measured (2026-08-30):** Intel UHD Graphics (integrated, no CUDA, no usable VRAM),
+7 GB system RAM with ~1 GB free, 12 CPU cores. This is the "No GPU" branch, and
+harder than the branch assumed — there is not enough headroom to keep even a 3B
+model resident alongside the Python core and the Electron dashboard.
+
+> **Decision (2026-08-30):** **No local generative LLM. Hosted Claude for the
+> small/large/vision tiers; nano stops being an LLM tier at all.** The tier table in
+> [[LLM Model Tiers]] now names concrete models:
+>
+> - **nano → deterministic code, not a model.** A hosted round-trip is 300–800 ms at
+>   best, so the `<100 ms` budget in [[10-Architecture/Voice Stack]] is unreachable by
+>   any network call. Wake word, intent classification, echo detection and the
+>   [[Recall Pathways|recall gate]] become keyword/regex plus a small ONNX classifier
+>   on CPU. This *removes* an LLM from the hot path rather than relocating it.
+> - **small → `claude-haiku-4-5`** ($1/$5 per MTok, 200K context). Tool routing,
+>   planner step resolution, sentiment tagging, note formatting, summarisation.
+>   Short prompts land inside the `<500 ms` budget.
+> - **large → `claude-opus-5`** ($5/$25 per MTok, 1M context), adaptive thinking on,
+>   `output_config.effort` tuned per agent — `low` for routine calls, `high`/`xhigh`
+>   for [[Agent — Strategy Author|strategy authoring]] and risk debate.
+> - **vision → `claude-opus-5`** as well; it is vision-capable, so
+>   [[Agent — Pattern Recognition]] needs no second provider. Drop to
+>   `claude-sonnet-5` if chart volume makes it expensive.
+> - **embedding → stays local on CPU** — `bge-small-en-v1.5` or `all-MiniLM-L6-v2`
+>   via ONNX runtime (~130 MB, fine on 12 cores). Anthropic exposes no embeddings
+>   endpoint, and this is what feeds §9's retrieval engine either way.
+>
+> **Consequences.** Escalation is a model-string swap inside one SDK, not a provider
+> swap, so `needs_escalation` in [[Agent Contract]] costs one line. The cost-control
+> rules in [[LLM Model Tiers]] map onto real API features — prompt caching for
+> "same symbol + same bar + same prompt", the Batch API (50% off) for closed-market
+> work, and `output_config.task_budget` for the per-agent daily token budget.
+> [[Error Handling And Degradation]] gains one case: `claude-opus-5` can return
+> `stop_reason: "refusal"` on an HTTP 200, which is a silent hang in an autonomous
+> loop unless checked before reading `content`.
+>
+> The **`none`** row of [[LLM Model Tiers]] is untouched. [[Pre-Trade Risk Engine]],
+> [[Kill Switch]], [[Agent — Position And PnL Accountant]] and [[Agent — Risk Metrics]]
+> have no model in their call path, whatever the tiers resolve to.
+>
+> **Revisit when** a GPU box (24 GB+ VRAM) enters the picture. At that point nano and
+> small move back local per the original branch; nothing above changes shape, only
+> the `Where` column.
 
 ---
 
@@ -127,7 +169,7 @@ deliberately diverges — you asked for ElevenLabs. Confirm the trade:
 
 - Cloud voice = better quality, streaming, custom voice; audio leaves the machine.
 - Everything else (strategy, memory, journal, risk) stays local either way.
-- Fallback: local Piper/Kokoro TTS when offline, so [[Voice Stack]] degrades rather than breaks.
+- Fallback: local Piper/Kokoro TTS when offline, so [[10-Architecture/Voice Stack]] degrades rather than breaks.
 
 > **Decision:**
 

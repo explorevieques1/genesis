@@ -13,7 +13,9 @@
 
 identity:
   wake_word: genesis
-  voice_id: null           # ElevenLabs voice id; null until Phase 2
+  voice_id: zmcVlqmyk3Jpn5AVYcAL   # ElevenLabs voice id. Behaviour, not a secret:
+                                  # the key lives in ELEVENLABS_API_KEY, this does not.
+                                  # Unused until the Phase 7 TTS client exists.
   persona: butler          # calm, concise, precise
   verbosity: brief         # terse | brief | full
 
@@ -50,11 +52,15 @@ data:
   universe: watchlist      # watchlist | sp500 | custom
 
 llm:
-  nano:      { backend: ollama,    model: "" }
-  small:     { backend: ollama,    model: "" }
-  large:     { backend: anthropic, model: claude-sonnet-5 }
-  vision:    { backend: anthropic, model: claude-sonnet-5 }
-  embedding: { backend: ollama,    model: "" }
+  # Fixed by LLM Model Tiers.md + Open Questions Section 4: no GPU on the build
+  # machine, so nothing generative runs local. The measured Ollama latency
+  # (1.3-6.5 s for a one-word class, against a <100 ms budget) is why nano is
+  # not a model at all -- intent classification is deterministic code.
+  nano:      { backend: none,      model: "" }
+  small:     { backend: anthropic, model: claude-haiku-4-5 }
+  large:     { backend: anthropic, model: claude-opus-5 }
+  vision:    { backend: anthropic, model: claude-opus-5 }
+  embedding: { backend: onnx-local, model: bge-small-en-v1.5 }
   daily_token_budget: 2000000
 
 memory:
