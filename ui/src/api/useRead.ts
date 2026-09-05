@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Envelope } from './client'
-import { TransportError } from './client'
+import { HTTP, TransportError } from './client'
 
 /**
  * The four states a read can be in, as a discriminated union.
@@ -43,6 +43,43 @@ export interface Read<T> {
   reload: () => void
   /** When the current value arrived. For the "as of" label a stale read needs. */
   fetchedAt: number | null
+}
+
+/**
+ * What a failed read actually means.
+ *
+ * The old message was one sentence for every status: *"the daemon answered 404
+ * — is `genesis serve` running?"* It was wrong in the most confusing possible
+ * way, because a 404 proves the daemon **is** running — something answered.
+ * What a 404 on a `/v1` route really means is that the process is older than
+ * the route: a daemon started before these endpoints existed serves
+ * `/v1/health` happily and 404s everything added since.
+ *
+ * That is a routine thing to hit during development, and it should diagnose
+ * itself rather than send you looking for a server that is already up.
+ */
+function notRunning(): string {
+  return (
+    `could not reach the daemon at ${HTTP} — start it with \`genesis serve\`, ` +
+    `or point the UI elsewhere with VITE_GENESIS_HTTP.`
+  )
+}
+
+function describe(error: TransportError): string {
+  if (error.status === 404) {
+    return (
+      `the daemon answered 404 for this route — it is running, but does not ` +
+      `know this endpoint. That usually means it started before the route ` +
+      `existed: restart it (\`genesis serve\`) to pick up the current code.`
+    )
+  }
+  if (error.status === 503) {
+    return 'the daemon is up but a dependency it needs is not available'
+  }
+  if (error.status >= 500) {
+    return `the daemon failed on this route (${error.status}) — check its log`
+  }
+  return `the daemon rejected this request (${error.status})`
 }
 
 /**
@@ -84,11 +121,14 @@ export function useRead<T>(
         if (mine !== generation.current) return
         setFetchedAt(Date.now())
         const reason =
-          error instanceof TransportError
-            ? `the daemon answered ${error.status} — is \`genesis serve\` running?`
-            : error instanceof Error
-              ? error.message
-              : String(error)
+          error instanceof TransportError ? describe(error)
+          // `fetch` rejects with a bare TypeError("Failed to fetch") when it
+          // cannot open the connection at all. THAT is the case where "is the
+          // daemon running?" is the right question -- and the message the user
+          // sees should be the one that fits.
+          : error instanceof TypeError ? notRunning()
+          : error instanceof Error ? error.message
+          : String(error)
         setState({ status: 'error', data: null, reason })
       })
     // `fetcher` is intentionally not a dependency: it is almost always an
