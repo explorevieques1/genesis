@@ -22,13 +22,69 @@ dependencies = [
     # budget, which is the whole latency argument in one line.
     "httpx>=0.27",
     "numpy>=1.26",
+    # MCP Gateway: the gateway is the only path from an agent to a tool from
+    # Phase 3 onward, so the SDK is core rather than an extra. It is imported
+    # lazily in one file (mcp/transports.py) so the catalogue, allow-list and
+    # discovery rules stay testable without a live server -- those rules are
+    # what keep place_order out of the catalogue, and they must run on every
+    # test run, not only where `uvx` works.
+    "mcp>=2.1",
+    # Charting Engine: the server-side renderer. Core rather than an extra
+    # because the market-closed loop marks up charts with no window open, and a
+    # headless daemon that cannot draw is one that cannot do its overnight job.
+    # matplotlib is chosen for determinism -- Agg, a bundled font, stripped
+    # metadata -- which is what makes "same spec + same bars = the same bytes"
+    # true, and that is what the vision cache and the journal's
+    # re-renderability both rest on.
+    "matplotlib>=3.8",
+    # Agent — Backtest: the simulator. Genesis does not implement one. Nautilus
+    # brings a matching engine that fills resting stops against an order-book
+    # model, portfolio accounting that balances, and a single implementation of
+    # Sharpe/Sortino/expectancy shared with the live path -- which is what makes
+    # Backtest Vs Live Drift able to report drift rather than a formula
+    # difference. Pre-release pin: v2 is the Rust-core line the corpus clone
+    # tracks, and its API differs from the 1.x Cython line.
+    "nautilus_trader==2.0.0rc4",
+    # Market Data Plane: the store. Core rather than an extra because the
+    # market-closed loop's whole job is writing to it, and a daemon that cannot
+    # open the store cannot do its overnight pass. Chosen for the reason the
+    # note gives -- columnar, serverless, and its files are readable directly by
+    # pandas and vectorbt, so a backtest needs no translation layer.
+    "duckdb>=1.0",
 ]
 
 [project.scripts]
 genesis = "genesis.cli:main"
+# genesis-tradingview-mcp: our own MCP server, spoken to over stdio by the
+# gateway like any other. A separate process rather than an in-tree module
+# call because that is what makes it uniform — the allow-list, the fence and
+# the rate limit apply to it exactly as they apply to somebody else's server,
+# and a special case for "our" servers would be a hole in all three.
+genesis-tradingview-mcp = "genesis.tradingview.server:main"
+# genesis-charting-mcp: level computation and rendering. A separate process for
+# the same reason as the one above -- the allow-list, the fence and the rate
+# limit apply to our servers exactly as they apply to somebody else's, and a
+# special case for "ours" would be a hole in all three.
+genesis-charting-mcp = "genesis.charting.server:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Vendor adapters are extras, not core. The plane must import, the daemon must
+# start, and `genesis chart --no-fetch` must work on a machine with no vendor
+# packages at all -- degrading to "that vendor is unavailable" rather than to
+# "the market data plane failed to import". Every adapter imports its SDK
+# lazily inside `fetch` for exactly this reason.
+marketdata = [
+    # Open Questions §6: CME history, on free credits. Historical only.
+    "databento>=0.50",
+    # Free, keyless, equities and indices. Refuses futures on purpose.
+    "yfinance>=0.2",
+    # Open Questions §1: the broker feed. An extra rather than core for the
+    # same reason as the others -- the plane must import and the daemon must
+    # start on a host with no gateway, reporting IBKR as unavailable instead of
+    # failing. `ib_async` is the maintained continuation of ib_insync.
+    "ib_async>=2.0",
+]
 # Voice is a surface, not the spine (Voice Stack.md), so the audio stack is an
 # extra: a headless daemon host runs the whole system without PortAudio, and
 # `genesis voice` is the only thing that needs it. faster-whisper is here
