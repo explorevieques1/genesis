@@ -298,12 +298,25 @@ def breakout(
     )
 
 
-#: Named templates the command layer and the planner can resolve by keyword.
+#: The distinct strategies, in the order a picker should show them. One entry
+#: per *shape*, which is what a person is choosing between.
+CANONICAL: tuple[str, ...] = ("macd", "ma", "rsi", "breakout")
+
+#: Every phrase that resolves to one, including the canonical ids themselves.
+#:
+#: Aliases exist for the spoken path — "golden cross" and "moving average
+#: crossover" are the same strategy and a person may say either. Keeping them
+#: here rather than in the picker is what stopped the UI listing "Moving average
+#: crossover" three times: the resolution map is many-to-one, and a list built
+#: from its keys inherits the many.
 TEMPLATES = {
     "macd": macd_crossover,
     "ma": ma_crossover,
     "sma": ma_crossover,
     "golden-cross": ma_crossover,
+    "moving-average": ma_crossover,
     "rsi": rsi_reversion,
+    "mean-reversion": rsi_reversion,
     "breakout": breakout,
+    "donchian": breakout,
 }

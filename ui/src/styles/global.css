@@ -1,0 +1,208 @@
+/* Spec: Genesis Markdown/60-UI/Dashboard.md §Design principles */
+@import 'tailwindcss';
+@import './tokens.css';
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg-void);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Mission control, not SaaS: numbers are tabular and readable, always. */
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+.label {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+
+/* Dashboard: "degraded data looks degraded" — a whole-element visual state,
+ * not a badge. A stale number must never read as a confident one. */
+.stale {
+  color: var(--state-stale) !important;
+  text-decoration: line-through 1px;
+  text-decoration-color: color-mix(in oklab, var(--state-stale) 55%, transparent);
+  opacity: 0.85;
+}
+.stale-box {
+  background-image: repeating-linear-gradient(
+    135deg, transparent 0 6px, color-mix(in oklab, var(--state-stale) 14%, transparent) 6px 7px);
+}
+
+.hairline-t { border-top: 1px solid var(--hairline); }
+.hairline-b { border-bottom: 1px solid var(--hairline); }
+.hairline-r { border-right: 1px solid var(--hairline); }
+.hairline-l { border-left: 1px solid var(--hairline); }
+
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input { font: inherit; color: inherit; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--hairline-bright); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-ghost); }
+
+.scroll-y { overflow-y: auto; overscroll-behavior: contain; }
+
+/* --- React Flow surface ------------------------------------------------ */
+.react-flow { background: transparent; }
+.react-flow__attribution { display: none; }
+.react-flow__edge-path { transition: stroke-opacity 160ms linear; }
+.react-flow__handle { opacity: 0; pointer-events: none; }
+.react-flow__node { cursor: default; }
+.react-flow__controls-button {
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--hairline);
+  fill: var(--ink-dim);
+}
+
+/* --- motion ------------------------------------------------------------ */
+/* Every animation multiplies its duration contribution by --motion-scale so the
+ * degradation ladder removes motion without removing information. */
+:root { --motion-scale: 1; }
+
+@keyframes pulse-soft { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+@keyframes dash-flow { to { stroke-dashoffset: -24; } }
+@keyframes rise { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+.anim-pulse { animation: pulse-soft calc(1.6s / max(var(--motion-scale), 0.001)) ease-in-out infinite; }
+.anim-rise { animation: rise 180ms ease-out; }
+:root[data-tier='reduced'] .anim-pulse,
+:root[data-tier='degraded'] .anim-pulse,
+:root[data-tier='reduced'] .anim-rise,
+:root[data-tier='degraded'] .anim-rise { animation: none; }
+
+/* --- the shell's own primitives ---------------------------------------- */
+/* These exist because the spec rules out a pre-styled component kit (UI Stack
+ * §4: Base UI, "explicitly unstyled") — live mode and stale data are
+ * whole-surface states that a themed kit fights. So the handful of controls the
+ * shell needs are defined once, here, on the same tokens. */
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-bright);
+  background: var(--bg-raised); color: var(--ink-dim);
+  font-size: var(--fs-tiny); letter-spacing: 0.04em;
+  transition: color 90ms var(--ease-standard, ease),
+              border-color 90ms var(--ease-standard, ease),
+              background 90ms var(--ease-standard, ease);
+}
+.btn:hover { color: var(--ink); border-color: var(--ink-ghost); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn[data-active='true'] {
+  color: var(--ink); background: var(--bg-panel);
+  border-color: var(--core); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--core) 22%, transparent);
+}
+
+.btn-ghost {
+  padding: 2px 7px; border-radius: var(--r-sm);
+  color: var(--ink-faint); font-size: var(--fs-micro);
+  letter-spacing: 0.12em; text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.btn-ghost:hover { color: var(--ink-dim); border-color: var(--hairline); }
+
+.field {
+  background: var(--bg-inset); border: 1px solid var(--hairline);
+  border-radius: var(--r-sm); padding: 3px 7px;
+  font-size: var(--fs-sm); color: var(--ink); outline: none;
+}
+.field:focus { border-color: var(--core); }
+
+/* A skeleton, not a spinner: it claims the shape of the thing that is coming,
+ * so the layout does not jump when it lands. */
+@keyframes shimmer { 0%, 100% { opacity: 0.28; } 50% { opacity: 0.6; } }
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-raised), var(--hairline), var(--bg-raised));
+  animation: shimmer calc(1.5s / max(var(--motion-scale), 0.001)) ease-in-out infinite;
+}
+:root[data-tier='reduced'] .skeleton,
+:root[data-tier='degraded'] .skeleton { animation: none; opacity: 0.35; }
+
+/* Staggered arrival. `--i` is set inline per row; the delay is capped in JS
+ * (lib/motion.ts) so a long list does not trickle in for two seconds. */
+@keyframes lift { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.lift {
+  animation: lift calc(220ms / max(var(--motion-scale), 0.001)) cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 1ms);
+}
+:root[data-tier='reduced'] .lift,
+:root[data-tier='degraded'] .lift { animation: none; }
+
+/* The selection treatment, borrowed from the Handshake reference: the chosen
+ * row keeps full contrast and everything else recedes. Dimming the siblings
+ * rather than brightening the selection means the surface never gets louder
+ * when you interact with it. */
+[data-focus-scope='true'] [data-focused='false'] {
+  opacity: 0.34;
+  transition: opacity 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+[data-focus-scope='true'] [data-focused='true'] {
+  opacity: 1;
+  transition: opacity 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:root[data-tier='reduced'] [data-focus-scope='true'] [data-focused='false'],
+:root[data-tier='degraded'] [data-focus-scope='true'] [data-focused='false'] {
+  opacity: 0.55; transition: none;
+}
+
+.row-hit {
+  transition: background 90ms linear, border-color 90ms linear;
+  border-left: 2px solid transparent;
+}
+.row-hit:hover { background: var(--bg-raised); }
+.row-hit[data-selected='true'] {
+  background: var(--bg-raised); border-left-color: var(--core);
+}
+
+/* Numbers that changed. A brief tint, never a layout shift — a value moving
+ * must not reflow the row it is in. */
+@keyframes tick-up { from { color: var(--verdict-pass); } to { color: inherit; } }
+@keyframes tick-down { from { color: var(--verdict-blocked); } to { color: inherit; } }
+.tick-up { animation: tick-up calc(700ms / max(var(--motion-scale), 0.001)) ease-out; }
+.tick-down { animation: tick-down calc(700ms / max(var(--motion-scale), 0.001)) ease-out; }
+
+.scroll-y { overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.scroll-x { overflow-x: auto; overflow-y: hidden; }
+
+/* Dockview, themed onto Genesis tokens rather than its shipped theme. */
+.dockview-theme-genesis {
+  --dv-background-color: var(--bg-void);
+  --dv-paneview-active-outline-color: var(--core);
+  --dv-tabs-and-actions-container-background-color: var(--bg-deep);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-deep);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-deep);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-deep);
+  --dv-tab-divider-color: var(--hairline);
+  --dv-activegroup-visiblepanel-tab-color: var(--ink);
+  --dv-activegroup-hiddenpanel-tab-color: var(--ink-faint);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--ink-dim);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--ink-ghost);
+  --dv-separator-border: var(--hairline);
+  --dv-paneview-header-border-color: var(--hairline);
+  --dv-group-view-background-color: var(--bg-panel);
+  --dv-tabs-container-scrollbar-color: var(--hairline-bright);
+  --dv-icon-hover-background-color: var(--bg-raised);
+  --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+.dockview-theme-genesis .dv-tab { font-size: var(--fs-micro); letter-spacing: 0.12em; text-transform: uppercase; }

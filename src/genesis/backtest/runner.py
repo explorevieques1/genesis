@@ -70,9 +70,13 @@ class BacktestRun:
     stats_pnls: dict[str, dict[str, float | None]] = field(default_factory=dict)
     stats_returns: dict[str, float | None] = field(default_factory=dict)
     stats_general: dict[str, float | None] = field(default_factory=dict)
-    #: Account balance over time — the real money curve, from the engine's own
-    #: bookkeeping rather than reconstructed from trades.
+    #: Account **equity** over time: starting equity compounded by Nautilus'
+    #: per-event returns. See :func:`_equity_curve` for why this is not the
+    #: account balance.
     equity: list[dict[str, Any]] = field(default_factory=list)
+    #: Cash balance over time, from the account report. Kept separately because
+    #: for a CASH account it is genuinely different from equity.
+    cash: list[dict[str, Any]] = field(default_factory=list)
     #: Per-event returns, ts → value. Nautilus' canonical series.
     returns: list[dict[str, Any]] = field(default_factory=list)
     positions: list[dict[str, Any]] = field(default_factory=list)
@@ -93,6 +97,7 @@ class BacktestRun:
                 "general": self.stats_general,
             },
             "equity": self.equity,
+            "cash": self.cash,
             "returns_series": self.returns,
             "positions": self.positions,
             "orders": self.orders,
@@ -187,7 +192,8 @@ def run_spec(spec: StrategySpec, bars: Sequence[Any]) -> BacktestRun:
             {"time": int(ts_ns // 1_000_000_000), "value": _finite(value)}
             for ts_ns, value in sorted((result.returns_series or {}).items())
         ]
-        run.equity = _account_curve(engine, venue)
+        run.cash = _account_curve(engine, venue)
+        run.equity = _equity_curve(run.returns, spec.starting_equity)
         run.positions = _frame(engine.generate_positions_report(), _POSITION_COLUMNS)
         run.orders = _frame(engine.generate_orders_report(), _ORDER_COLUMNS)
         run.fills = _frame(engine.generate_fills_report(), _FILL_COLUMNS)
@@ -278,12 +284,12 @@ def _scalar(value: Any) -> Any:
 
 
 def _account_curve(engine: Any, venue: Any) -> list[dict[str, Any]]:
-    """The account balance history — the money curve.
+    """The **cash** balance history, from the account report.
 
-    Taken from the engine's account report rather than accumulated from trade
-    PnL. A curve built by summing closed trades cannot show drawdown while a
-    position is open, and understating drawdown is the single most flattering
-    error a backtest report can make.
+    Named honestly. For a ``CASH`` account this is money not in shares, so it
+    *drops* the moment a position opens and recovers when it closes — buying
+    100k of stock reads as a 100% loss of cash. It is a real and occasionally
+    useful series, and it is not an equity curve.
     """
     try:
         df = engine.generate_account_report(venue)
@@ -295,18 +301,53 @@ def _account_curve(engine: Any, venue: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for ts, record in zip(df.index, df.to_dict("records")):
         try:
-            total = str(record.get("total"))
             out.append({
                 "time": int(ts.timestamp()),
                 "ts": ts.isoformat(),
-                # A string, deliberately. The chart parses it at the axis.
-                "total": total,
+                # Strings, deliberately. The chart parses at the axis.
+                "total": str(record.get("total")),
                 "free": str(record.get("free")),
                 "locked": str(record.get("locked")),
                 "currency": str(record.get("currency")),
             })
         except Exception:  # noqa: BLE001
             continue
+    return out
+
+
+def _equity_curve(
+    returns: list[dict[str, Any]], starting_equity: float
+) -> list[dict[str, Any]]:
+    """Account equity: starting equity compounded by Nautilus' returns series.
+
+    **This exists because the account balance is not the equity curve**, and
+    plotting it as one was actively misleading. In a ``CASH`` account,
+    ``AccountBalance.total`` is cash: it fell from 100,000 to 82,672 the moment
+    a position opened and recovered on the close. Drawn as equity, that is a
+    24% drawdown the account never experienced — it simply had money in shares.
+
+    `nautilus_trader.analysis.tearsheet` builds its curve the same way::
+
+        cumulative = (1 + returns).cumprod()
+
+    so this is the engine's own definition rather than a reconstruction, and it
+    samples per event rather than only on balance changes — 176 points here
+    against the account report's 9, which is the difference between a curve and
+    a set of line segments.
+    """
+    if not returns:
+        return []
+    out: list[dict[str, Any]] = []
+    equity = float(starting_equity)
+    for point in returns:
+        value = point.get("value")
+        if value is not None and math.isfinite(float(value)):
+            equity *= 1.0 + float(value)
+        out.append({
+            "time": int(point["time"]),
+            # A string, like every other money value on the wire.
+            "total": f"{equity:.2f}",
+        })
     return out
 
 

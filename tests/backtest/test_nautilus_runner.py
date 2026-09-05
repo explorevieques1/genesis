@@ -208,3 +208,58 @@ def test_engine_version_is_recorded_with_every_run():
     meta = run.to_dict()["meta"]
     assert meta["engine"] == "nautilus_trader"
     assert meta["engine_version"] and meta["engine_version"] != "unknown"
+
+
+# ---------------------------------------------------------------------------
+# the equity curve is equity, not cash
+# ---------------------------------------------------------------------------
+
+def test_equity_curve_is_not_the_cash_balance():
+    """The distinction that made the first version of this chart a lie.
+
+    In a CASH account, `AccountBalance.total` is money *not* in shares. Opening
+    a position moves cash into stock, so the balance falls — and drawn as an
+    equity curve that reads as a catastrophic drawdown the account never had.
+    On the AAPL sample it showed −24% against a true −2.5%.
+
+    So `equity` compounds Nautilus' returns series (its own tearsheet's
+    definition) and `cash` keeps the balance history under its real name.
+    """
+    run = run_spec(ma_crossover("EQ:XNAS:TEST", fast=5, slow=20), make_bars(trending()))
+    body = run.to_dict()
+
+    equity = [float(p["total"]) for p in body["equity"]]
+    cash = [float(p["total"]) for p in body["cash"]]
+    assert equity, "an equity curve is required"
+
+    def max_drawdown(series):
+        peak = series[0]
+        worst = 0.0
+        for value in series:
+            peak = max(peak, value)
+            worst = min(worst, (value / peak) - 1.0)
+        return worst
+
+    if run.positions and cash:
+        # Cash dips whenever a position is open; equity should not inherit
+        # that dip. If these ever match, the curves have been conflated again.
+        assert max_drawdown(equity) >= max_drawdown(cash)
+
+    # Per-event resolution, not just balance-change resolution.
+    assert len(equity) >= len(cash)
+
+
+def test_equity_curve_starts_at_the_configured_equity():
+    run = run_spec(
+        ma_crossover("EQ:XNAS:TEST", fast=5, slow=20, starting_equity=250_000.0),
+        make_bars(trending()),
+    )
+    equity = run.to_dict()["equity"]
+    assert equity
+    assert float(equity[0]["total"]) == pytest.approx(250_000.0, rel=1e-6)
+
+
+def test_money_on_the_equity_curve_is_a_string():
+    run = run_spec(ma_crossover("EQ:XNAS:TEST", fast=5, slow=20), make_bars(trending()))
+    for point in run.to_dict()["equity"]:
+        assert isinstance(point["total"], str)

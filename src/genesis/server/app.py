@@ -166,20 +166,32 @@ def build_app(bus: EventBus | None = None) -> Any:
         return JSONResponse(
             {
                 "watermark": bus.watermark,
+                # The field names are `types/fleet.ts`'s `SafetyFloor` exactly.
+                # They were not, and the mismatch was invisible from both ends:
+                # the socket accepted the envelope, the store wrote `undefined`
+                # into `portfolioHeat`, and `money()` threw inside the safety
+                # floor -- blanking the whole surface. The floor is the one
+                # component that must survive everything else failing, so its
+                # contract is pinned by a test rather than by agreement.
+                #
+                # Em dashes, not zeroes. There is no broker and no position, so
+                # heat is *unknown*, and "0.00%" is a claim this system is not
+                # entitled to make.
                 "safety": {
                     "approvalMode": "confirm",  # Safety Invariants §5
+                    "portfolioHeat": "—",
+                    "heatLimit": "—",
+                    "dailyLossHeadroom": "—",
+                    "openPositions": 0,
                     "halted": False,
-                    "dayPnl": "0.00",
-                    "dayLossLimit": "0.00",
-                    "openRisk": "0.00",
-                    "positions": 0,
-                    "workingOrders": 0,
-                    "lastReconcileAt": None,
+                    "haltTrigger": None,
+                    "asOf": 0,
                 },
+                # Likewise `SystemHealth` -- the keys the health bar reads.
                 "health": {
-                    "broker": "unknown",
-                    "data": "ok",
+                    "daemon": "ok",
                     "memory": "ok",
+                    "risk": "unknown",
                     "voice": "ok",
                     "execution": "unknown",
                     "connectivity": "ok",

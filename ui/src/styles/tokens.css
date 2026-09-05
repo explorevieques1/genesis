@@ -1,0 +1,123 @@
+/* Spec: Genesis Markdown/60-UI/UI Stack.md §4 Chrome
+ *
+ * Tokens carry the SEMANTICS, not the palette. A call site says
+ * `var(--state-live)`, never `--red-500`. That is what makes "live mode is a
+ * different colour scheme, not a small badge" a one-file change instead of a
+ * hundred small overrides.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- ground ---- */
+  --bg-void: #04060b;
+  --bg-deep: #070b14;
+  --bg-panel: #0a1019;
+  --bg-raised: #0e1622;
+  --bg-inset: #060a11;
+  --hairline: #16202e;
+  --hairline-bright: #223044;
+
+  /* ---- ink ---- */
+  --ink: #d6e2f0;
+  --ink-dim: #8296ae;
+  --ink-faint: #4d6076;
+  --ink-ghost: #2c3a4c;
+
+  /* ---- the organism's own light ---- */
+  --core: #3d8bff;
+  --core-hot: #8fd0ff;
+  --core-flare: #ffb765;
+
+  /* ---- agent state (one machine, many renderings) ---- */
+  --state-idle: #3f5169;
+  --state-working: #3d8bff;
+  --state-blocked: #d9a441;
+  --state-degraded: #d97a2b;
+  --state-down: #b3364a;
+
+  /* ---- activity phase: the texture of `working` ---- */
+  --phase-perceiving: #2fb8a8;  /* afferent */
+  --phase-thinking: #7a6bff;    /* the LLM organ */
+  --phase-acting: #ff8f3f;      /* efferent */
+  --phase-verifying: #57c2ff;   /* proprioception */
+  --phase-waiting: #6b7a90;
+
+  /* ---- family identity ---- */
+  --family-research: #4aa3df;
+  --family-charting: #45c4a0;
+  --family-strategy: #a48bff;
+  --family-execution: #ff6b57;   /* anything touching money is distinguishable */
+  --family-journal: #d9b45c;
+  --family-core: #8fd0ff;
+
+  /* ---- reflex vs judgement (Biological Design §1) ---- */
+  --spinal: #7de3c3;             /* tier: none — cannot hallucinate */
+  --spinal-dim: #1b3a34;
+  --judgement: #7a6bff;
+
+  /* ---- verdicts ---- */
+  --verdict-pass: #35c48a;
+  --verdict-blocked: #ff4d5e;
+  --verdict-pending: #d9a441;
+
+  /* ---- transport / freshness ---- */
+  --state-live: #ff3b30;         /* live trading. Unmistakable, by design. */
+  --state-paper: #35c48a;
+  --state-observe: #4aa3df;
+  --state-stale: #6b5a2e;
+  --state-mock: #a48bff;
+
+  /* ---- edges: three classes, three weights ---- */
+  --edge-lineage: #3d8bff;
+  --edge-memory: #45c4a0;
+  --edge-event: #d9b45c;
+
+  /* ---- geometry ---- */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --rail: 260px;
+  --panel-pad: 10px;
+
+  --font-ui: ui-sans-serif, "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  --fs-micro: 9.5px;
+  --fs-tiny: 10.5px;
+  --fs-sm: 11.5px;
+  --fs-base: 13px;
+  --fs-lg: 16px;
+  --fs-xl: 22px;
+  --fs-hero: 34px;
+}
+
+/* Live mode restyles the whole surface from one place — Dashboard §Design
+ * principles: "a different colour scheme, not a small badge". */
+:root[data-approval='live'] {
+  --hairline: #3a1a1e;
+  --hairline-bright: #5c2229;
+  --bg-panel: #120a0c;
+  --bg-raised: #180d10;
+  --bg-deep: #0c0608;
+}
+
+/* Halted outranks everything, including live. */
+:root[data-halted='true'] {
+  --hairline: #4a1420;
+  --hairline-bright: #7a1f30;
+}
+
+/* UI Stack §6 — the ladder is one-way under fault and automatic. Below
+ * `ambient` there is no WebGL context and motion is progressively removed. */
+:root[data-tier='reduced'],
+:root[data-tier='degraded'] {
+  --motion-scale: 0;
+}
+:root[data-tier='degraded'] {
+  --ink: #9aa8b8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-scale: 0; }
+}

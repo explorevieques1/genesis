@@ -12,7 +12,7 @@ tags: [meta, generated]
 Every note name resolves to exactly one path. When you meet a `[[wikilink]]`
 while reading, this is how you find the file behind it.
 
-**113 notes.** Status: ○ spec · ◐ building · ● built
+**116 notes.** Status: ○ spec · ◐ building · ● built
 
 > [!danger] Name collisions
 > These names appear more than once, so `[[link]]` is ambiguous. Rename one:
@@ -142,13 +142,16 @@ while reading, this is how you find the file behind it.
 
 | Note | Path | | Implemented by |
 |---|---|---|---|
+| `Automation` | `Genesis Markdown/60-UI/Automation.md` | ○ |  |
 | `Dashboard` | `Genesis Markdown/60-UI/Dashboard.md` | ◐ | [ui/src/App.tsx, ui/src/components/SafetyFloor.tsx, ui/src/components/KillSwitch.tsx, ui/src/components/EventStream.tsx, ui/src/components/SystemHealth.tsx] |
 | `Desktop Shell` | `Genesis Markdown/60-UI/Desktop Shell.md` |  |  |
 | `Fleet View` | `Genesis Markdown/60-UI/Fleet View.md` | ◐ | [ui/src/views/BodyMap.tsx, ui/src/graph/useFleetGraph.ts, ui/src/graph/layout.ts, ui/src/graph/nodes/AgentNode.tsx, ui/src/graph/edges/FleetEdges.tsx, ui/src/views/TraceView.tsx] |
 | `Genesis Core` | `Genesis Markdown/60-UI/Genesis Core.md` | ◐ | [ui/src/components/GenesisCore.tsx, ui/src/graph/nodes/CoreNode.tsx] |
+| `Research Canvas` | `Genesis Markdown/60-UI/Research Canvas.md` | ○ |  |
 | `UI Stack` | `Genesis Markdown/60-UI/UI Stack.md` | ◐ | [ui/package.json, ui/vite.config.ts, ui/src/styles/tokens.css, ui/src/transport/transport.ts, ui/src/transport/live.ts, ui/src/lib/format.ts, ui/src/components/SurfaceBoundary.tsx, ui/src/components/TapToSpeak.tsx, src/genesis/server/app.py, src/genesis/commands.py, tests/test_server.py, tests/test_commands.py] |
 | `Voice UX` | `Genesis Markdown/60-UI/Voice UX.md` | ● | [src/genesis/voice/speech.py, src/genesis/voice/earcons.py, src/genesis/voice/policy.py, src/genesis/orchestrator/verbosity.py] |
 | `Widget Catalog` | `Genesis Markdown/60-UI/Widget Catalog.md` | ◐ | [ui/src/components/EventStream.tsx, ui/src/components/SafetyFloor.tsx, ui/src/components/KillSwitch.tsx, ui/src/views/MemoryFabric.tsx, ui/src/views/ExecutionPath.tsx] |
+| `Workspaces` | `Genesis Markdown/60-UI/Workspaces.md` | ● | - ui/src/shell/pages.ts |
 
 ## 70-Schemas
 

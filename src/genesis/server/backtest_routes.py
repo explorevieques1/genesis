@@ -54,17 +54,16 @@ def backtest_routes(bus: Any = None) -> list[Any]:
         the template produces a validated spec. The UI renders these as the
         strategy picker.
         """
-        from genesis.backtest.strategy import TEMPLATES
+        from genesis.backtest.strategy import CANONICAL
 
+        # CANONICAL, not `TEMPLATES.keys()`. The template map is many-to-one --
+        # "sma", "golden-cross" and "ma" are all the same strategy -- so a list
+        # built from its keys showed "Moving average crossover" three times.
         return JSONResponse({
             "available": True,
             "templates": [
-                {
-                    "id": name,
-                    "label": _label(name),
-                    "params": _params(name),
-                }
-                for name in sorted(set(TEMPLATES))
+                {"id": name, "label": _label(name), "params": _params(name)}
+                for name in CANONICAL
             ],
         })
 
@@ -292,8 +291,6 @@ def _store_run(run: Any, prompt: str | None) -> str:
 _LABELS = {
     "macd": "MACD crossover",
     "ma": "Moving average crossover",
-    "sma": "Moving average crossover",
-    "golden-cross": "Golden cross (50/200)",
     "rsi": "RSI mean reversion",
     "breakout": "Donchian breakout",
 }
