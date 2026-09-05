@@ -287,6 +287,7 @@ def build_app(bus: EventBus | None = None) -> Any:
     # four routes act, everything else only looks.
     from genesis.server.backtest_routes import backtest_routes
     from genesis.server.reads import read_routes
+    from genesis.server.voice_routes import voice_routes
 
     return Starlette(
         routes=[
@@ -299,6 +300,9 @@ def build_app(bus: EventBus | None = None) -> Any:
             # Backtests act -- they burn CPU and write a durable row -- so they
             # live apart from the reads. They still cannot reach an order path.
             *backtest_routes(bus),
+            # Synthesis. The reply text already came back from the command
+            # route; this is what makes it audible.
+            *voice_routes(bus),
         ],
         middleware=[
             # The Vite dev server is a different origin on the same host.

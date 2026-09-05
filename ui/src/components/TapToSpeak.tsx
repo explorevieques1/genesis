@@ -27,8 +27,14 @@ export interface VoiceReply {
   ok: boolean
   heard: string
   command: string
+  /** What Genesis says back. Spoken aloud by `lib/speak.ts`, and shown. */
   spoken: string
-  detail?: string
+  /**
+   * `null`, not `undefined`, because that is what the daemon sends.
+   * `CommandResult.detail` is `str | None` in Python and serialises to JSON
+   * `null`; typing it as optional made the two paths disagree at the boundary.
+   */
+  detail?: string | null
   ms?: number
 }
 

@@ -29,6 +29,7 @@ import { SystemHealthBar } from '@/components/SystemHealth'
 import type { VoiceReply } from '@/components/TapToSpeak'
 import { selectBusy, useGenesis } from '@/store/useGenesis'
 import { makeTransport } from '@/transport/live'
+import { speak, stopSpeaking } from '@/lib/speak'
 import { CommandBar } from '@/shell/CommandBar'
 import { TopBar } from '@/shell/TopBar'
 import { DEFAULT_PAGE, PAGES, type PageId } from '@/shell/pages'
@@ -120,6 +121,27 @@ function Shell() {
   const [presetId, setPresetId] = useState<string | null>(null)
   const [commandOpen, setCommandOpen] = useState(false)
   const [reply, setReply] = useState<VoiceReply | null>(null)
+  // Why the reply was not spoken, when it was not. Held beside the text rather
+  // than swallowed: silence with no explanation is indistinguishable from
+  // Genesis not having heard you.
+  const [unspoken, setUnspoken] = useState<string | null>(null)
+
+  /**
+   * Show a reply, and say it.
+   *
+   * Speech is fired and not awaited — the text must appear immediately, and
+   * the audio arrives a beat later. A failure to synthesise annotates the
+   * reply; it never suppresses it.
+   */
+  const onReply = useCallback((next: VoiceReply) => {
+    setReply(next)
+    setUnspoken(null)
+    if (next.spoken?.trim()) {
+      void speak(next.spoken).then((attempt) => {
+        if (!attempt.ok && attempt.reason) setUnspoken(attempt.reason)
+      })
+    }
+  }, [])
 
   useEffect(() => {
     attach(makeTransport())
@@ -200,7 +222,7 @@ function Shell() {
         onCommand={() => setCommandOpen(true)}
         onResetWorkspace={resetWorkspace}
         http={HTTP}
-        onReply={setReply}
+        onReply={onReply}
       />
 
       {/* ---- the safety floor. plain DOM, independent of everything below ----
@@ -236,7 +258,20 @@ function Shell() {
           {reply.detail && (
             <span className="label" style={{ color: 'var(--ink-faint)' }}>{reply.detail}</span>
           )}
-          <button className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setReply(null)}>
+          {unspoken && (
+            <span
+              className="label"
+              style={{ color: 'var(--state-blocked)', textTransform: 'none', letterSpacing: 0 }}
+              title={unspoken}
+            >
+              not spoken — {unspoken}
+            </span>
+          )}
+          <button
+            className="btn-ghost"
+            style={{ marginLeft: 'auto' }}
+            onClick={() => { stopSpeaking(); setReply(null); setUnspoken(null) }}
+          >
             dismiss
           </button>
         </div>
@@ -262,12 +297,7 @@ function Shell() {
         onClose={() => setCommandOpen(false)}
         onPage={goToPage}
         onSymbol={(symbolId, timeframe) => select({ symbolId, timeframe })}
-        onCommandResult={(text) =>
-          setReply({
-            ok: true, heard: text, command: 'typed',
-            spoken: 'sent to the command layer',
-          })
-        }
+        onCommandResult={onReply}
       />
     </div>
   )

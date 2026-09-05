@@ -17,10 +17,11 @@
 // what it means, and says where the change is made.
 
 import { useState } from 'react'
-import { api, type AgentRow, type AudioDevice } from '@/api/client'
+import { api, get, type AgentRow, type AudioDevice } from '@/api/client'
 import { useRead } from '@/api/useRead'
 import { Absent, Empty, Loading } from '@/components/States'
 import { Chip, Num, PanelBody, Section, Table } from '@/components/Primitives'
+import { speak } from '@/lib/speak'
 import { useGenesis } from '@/store/useGenesis'
 import { stagger } from '@/lib/motion'
 
@@ -37,8 +38,18 @@ import { stagger } from '@/lib/motion'
  * machine-wide default stored server-side would be wrong the moment the UI is
  * opened from a second device.
  */
+interface VoiceStatus {
+  backends: string[]
+  reason: string | null
+  cached_clips: number
+}
+
 export function AudioSettingsPanel() {
   const { state, reload } = useRead(() => api.audioDevices(), [])
+  const tts = useRead(
+    () => get<VoiceStatus>('/v1/voice/status'), [],
+  )
+  const [test, setTest] = useState<string | null>(null)
   const [chosen, setChosen] = useState<string | null>(() => {
     try { return localStorage.getItem('genesis.audio.input') } catch { return null }
   })
@@ -108,8 +119,59 @@ export function AudioSettingsPanel() {
         <div style={{ fontSize: 'var(--fs-tiny)', color: 'var(--ink-dim)', lineHeight: 1.6 }}>
           Speech is transcribed <strong style={{ color: 'var(--ink)' }}>locally</strong> by
           faster-whisper (<span className="num">tiny.en</span>, CPU). Audio does
-          not leave this machine, and the whole voice path works with no API key.
+          not leave this machine, and the whole listening path works with no API
+          key.
         </div>
+      </Section>
+
+      {/* Whether Genesis can talk back. Shown explicitly, because the failure
+          mode of a missing key is *silence* — indistinguishable from not having
+          been heard, which is the worst possible way for this to break. */}
+      <Section title="speech" dense>
+        {tts.state.status === 'loading' ? (
+          <Loading rows={1} />
+        ) : tts.state.status !== 'ready' ? (
+          <Absent reason={tts.state.reason} onRetry={tts.reload} />
+        ) : tts.state.data.backends.length === 0 ? (
+          <div style={{ fontSize: 'var(--fs-tiny)', color: 'var(--state-blocked)', lineHeight: 1.6 }}>
+            {tts.state.data.reason ?? 'no TTS backend configured'} — Genesis will
+            answer in text and stay silent.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <Chip tone="good">{tts.state.data.backends[0]}</Chip>
+              <span className="label" style={{ color: 'var(--ink-ghost)' }}>
+                {tts.state.data.backends.length > 1
+                  ? `+${tts.state.data.backends.length - 1} fallback`
+                  : 'no fallback'}
+                {tts.state.data.cached_clips > 0 && ` · ${tts.state.data.cached_clips} cached`}
+              </span>
+              <span style={{ flex: 1 }} />
+              <button
+                className="btn"
+                onClick={async () => {
+                  setTest('speaking…')
+                  const attempt = await speak('Genesis is online.')
+                  setTest(attempt.ok ? 'spoke' : attempt.reason)
+                }}
+              >
+                test voice
+              </button>
+            </div>
+            {test && (
+              <div
+                style={{
+                  fontSize: 'var(--fs-micro)',
+                  color: test === 'spoke' ? 'var(--verdict-pass)' : 'var(--state-blocked)',
+                  lineHeight: 1.5,
+                }}
+              >
+                {test}
+              </div>
+            )}
+          </div>
+        )}
       </Section>
 
       <div className="label" style={{ color: 'var(--ink-ghost)', textTransform: 'none', letterSpacing: 0, lineHeight: 1.5 }}>

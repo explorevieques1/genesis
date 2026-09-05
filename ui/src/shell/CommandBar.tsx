@@ -42,7 +42,18 @@ interface Props {
   onClose: () => void
   onPage: (page: PageId) => void
   onSymbol: (symbolId: string, timeframe: string) => void
-  onCommandResult: (text: string) => void
+  /**
+   * The daemon's actual answer, not just the text that was sent.
+   *
+   * `api.command()` already returns `{ ok, heard, command, spoken, detail }` —
+   * the same envelope the voice path produces. Discarding it and reporting
+   * "sent" meant a typed command was silent where the identical spoken one
+   * answered out loud.
+   */
+  onCommandResult: (reply: {
+    ok: boolean; heard: string; command: string
+    spoken: string; detail?: string | null
+  }) => void
 }
 
 export function CommandBar({ open, onClose, onPage, onSymbol, onCommandResult }: Props) {
@@ -137,8 +148,11 @@ export function CommandBar({ open, onClose, onPage, onSymbol, onCommandResult }:
     if (!text) return
     setRunning(true)
     try {
-      await api.command(text)
-      onCommandResult(text)
+      const result = await api.command(text)
+      onCommandResult({
+        ok: result.ok, heard: result.heard || text,
+        command: result.command, spoken: result.spoken, detail: result.detail,
+      })
       onClose()
     } catch {
       // The shell's reply strip reports failures; the palette just stops.

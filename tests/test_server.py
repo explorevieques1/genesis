@@ -53,11 +53,19 @@ def test_the_socket_has_no_write_path():
     #
     #   /v1/command           a typed command; the same path voice takes
     #   /v1/voice/utterance   audio in, action out
+    #   /v1/voice/say         text in, WAV out. A POST because it spends money
+    #                         at a TTS vendor and takes real time -- the same
+    #                         reasoning UI Stack §7 gives for commands.
     #   /v1/backtest/run      a simulation over stored bars. Burns CPU and
     #                         writes a durable row, so it is a POST -- but it
     #                         talks to a simulated venue and has no route to a
     #                         broker.
-    assert posts == {"/v1/command", "/v1/voice/utterance", "/v1/backtest/run"}
+    assert posts == {
+        "/v1/command",
+        "/v1/voice/utterance",
+        "/v1/voice/say",
+        "/v1/backtest/run",
+    }
 
 
 def test_no_route_reaches_an_order_path():
@@ -228,3 +236,59 @@ def test_one_command_is_one_trace(bus, client):
     client.post("/v1/command", json={"text": "status"})
     traces = {e["trace_id"] for e in bus._recent}
     assert len(traces) == 1
+
+
+# -- speech -----------------------------------------------------------------
+
+
+def test_wav_header_is_well_formed():
+    """Both TTS backends yield headerless PCM, which no browser will play.
+
+    The 44-byte RIFF header is the entire difference between "Genesis answered"
+    and "Genesis answered and you heard it", and it is the kind of thing that
+    is either exactly right or silently produces a file that decodes to noise.
+    """
+    import io
+    import wave
+
+    from genesis.server.voice_routes import wav_bytes
+
+    # Half a second of 24 kHz 16-bit silence.
+    pcm = b"\x00\x00" * 12_000
+    blob = wav_bytes(pcm, 24_000)
+
+    assert blob[:4] == b"RIFF"
+    assert blob[8:12] == b"WAVE"
+
+    reader = wave.open(io.BytesIO(blob))
+    try:
+        assert reader.getnchannels() == 1
+        assert reader.getframerate() == 24_000
+        assert reader.getsampwidth() == 2
+        assert reader.getnframes() == 12_000
+    finally:
+        reader.close()
+
+
+def test_say_rejects_empty_and_oversized_text(client):
+    """A reply is a sentence. Paying a vendor per character for more is the
+    expensive way to discover a bug upstream."""
+    from genesis.server.voice_routes import MAX_CHARS
+
+    assert client.post("/v1/voice/say", json={"text": "   "}).status_code == 400
+    assert client.post(
+        "/v1/voice/say", json={"text": "a" * (MAX_CHARS + 1)}
+    ).status_code == 413
+
+
+def test_voice_status_reports_whether_genesis_can_speak(client):
+    """Settings reads this so a missing key is visible.
+
+    The failure mode of absent TTS is *silence*, which is indistinguishable
+    from not having been heard — so it has to be stated somewhere.
+    """
+    body = client.get("/v1/voice/status").json()
+    assert "available" in body
+    assert isinstance(body.get("backends"), list)
+    if not body["available"]:
+        assert body["reason"], "an unavailable voice must say why"
