@@ -8,6 +8,7 @@ to boot."* -- Config And Secrets.md. These tests are that sentence, executable.
 from __future__ import annotations
 
 import os
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -50,7 +51,7 @@ def write(tmp_path: Path, body: str) -> Path:
 
 def test_shipped_defaults_load(defaults: Config) -> None:
     assert defaults.identity.wake_word == "genesis"
-    assert defaults.brokers.primary.kind == "alpaca"
+    assert defaults.brokers.primary.kind == "ibkr"
     assert defaults.memory.consolidation_hour == 21
 
 
@@ -111,7 +112,7 @@ def test_merge_is_deep_and_leaves_siblings_alone(tmp_path: Path) -> None:
     risk = load_config(path).risk
     assert risk.max_daily_loss_pct == Decimal("1.0")
     assert risk.max_position_pct == Decimal("5.0")  # untouched sibling
-    assert risk.symbol_allowlist == ["NVDA", "AMD", "AVGO", "SPY", "QQQ"]
+    assert risk.symbol_allowlist == ["ES", "NQ", "MES", "MNQ", "RTY", "M2K", "YM", "MYM"]
 
 
 def test_missing_user_file_is_not_an_error(tmp_path: Path) -> None:
@@ -247,3 +248,70 @@ def test_default_template_is_valid_and_carries_no_secret() -> None:
     assert "api_key" not in text.lower() or "keys come from env" in text.lower()
     for name in SECRET_ENV_VARS:
         assert f"{name}=" not in text
+
+
+# --------------------------------------------------------------------------
+# LiveConfig — the endocrine system
+# --------------------------------------------------------------------------
+
+
+def test_a_tightened_limit_takes_effect_without_a_restart(tmp_path) -> None:
+    """A limit you must restart to tighten is one you will not tighten."""
+    from genesis.config import LiveConfig
+
+    path = tmp_path / "config.yaml"
+    path.write_text("risk:\n  max_contracts_per_symbol: 5\n", encoding="utf-8")
+    live = LiveConfig(path)
+    assert live.get().risk.max_contracts_per_symbol == 5
+
+    path.write_text("risk:\n  max_contracts_per_symbol: 1\n", encoding="utf-8")
+    os.utime(path, (time.time() + 2, time.time() + 2))
+    assert live.get().risk.max_contracts_per_symbol == 1
+    assert live.reloads == 1
+
+
+def test_a_broken_file_keeps_the_limits_already_in_force(tmp_path) -> None:
+    from genesis.config import LiveConfig
+
+    path = tmp_path / "config.yaml"
+    path.write_text("risk:\n  max_contracts_per_symbol: 2\n", encoding="utf-8")
+    seen: list[Exception] = []
+    live = LiveConfig(path, on_error=seen.append)
+
+    path.write_text("risk:\n  max_contracts_per_symbol: not-a-number\n", encoding="utf-8")
+    os.utime(path, (time.time() + 2, time.time() + 2))
+
+    assert live.get().risk.max_contracts_per_symbol == 2, "fail closed: the old limit stands"
+    assert seen and not live.state()["valid"]
+    assert "max_contracts_per_symbol" in live.state()["error"]
+
+
+def test_an_unchanged_file_is_not_re_read(tmp_path) -> None:
+    from genesis.config import LiveConfig
+
+    path = tmp_path / "config.yaml"
+    path.write_text("risk:\n  max_contracts_per_symbol: 3\n", encoding="utf-8")
+    live = LiveConfig(path)
+    first = live.get()
+    assert live.get() is first, "one object per decision, not a new one per read"
+    assert live.reloads == 0
+
+
+def test_the_order_manager_reads_the_envelope_per_proposal(tmp_path) -> None:
+    """The envelope is live; everything else on the config is boot-time."""
+    from genesis.config import LiveConfig, load_config
+
+    path = tmp_path / "config.yaml"
+    path.write_text("risk:\n  max_contracts_per_symbol: 4\n", encoding="utf-8")
+    live = LiveConfig(path)
+
+    from genesis.execution.order_manager import OrderManager
+
+    manager = object.__new__(OrderManager)
+    manager.config = load_config(None)
+    manager.live_config = live
+    assert manager.envelope().max_contracts_per_symbol == 4
+
+    path.write_text("risk:\n  max_contracts_per_symbol: 1\n", encoding="utf-8")
+    os.utime(path, (time.time() + 2, time.time() + 2))
+    assert manager.envelope().max_contracts_per_symbol == 1

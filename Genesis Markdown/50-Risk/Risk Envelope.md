@@ -1,14 +1,21 @@
 ---
 title: Risk Envelope
 tags: [risk, schema]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/config.py]
 ---
 
 # Risk Envelope
 
 The signed set of hard limits every order is checked against. Changing it is a
 deliberate, logged, human act — never a voice command, never an agent decision.
+
+**A change takes effect on the next proposal, not the next restart**
+(`config.LiveConfig`, 2026-09-17). Editing `~/.genesis/config.yaml` is still the
+only door, and it is still a human act with a file behind it — but tightening a
+limit mid-session now works, because a limit that needs a restart is one nobody
+tightens during the drawdown that called for it. An invalid edit leaves the
+limits already in force standing. See [[Config And Secrets]].
 
 ## The envelope
 
@@ -121,6 +128,23 @@ global envelope until it earns more.
 - Loosening via voice or via an agent fails, tested for both.
 - Per-strategy envelopes correctly compute as `min(global, strategy)`.
 - Portfolio heat is computed correctly with mixed long/short and multiple stops.
+
+## Futures limits (2026-09-13)
+
+Open Questions §1 moved v1 to CME futures, where a percentage of equity against
+one contract's notional is not a limit anyone can reason about (one NQ is
+~$590k). Added to the `risk:` block, validated in `genesis.config.Risk`:
+
+```yaml
+symbol_allowlist: [ES, NQ, MES, MNQ, RTY, M2K, YM, MYM]   # contract roots
+max_contracts_per_symbol: 2
+max_daily_loss_usd: 2000
+max_price_deviation_pct: 2.0      # fat-finger band against the arrival quote
+```
+
+`session_window` stays for equities; futures use the contract's own trading
+hours as IBKR reports them. Not yet built: envelope signing and versioning,
+weekly loss, max drawdown, per-strategy envelopes.
 
 ## Related
 

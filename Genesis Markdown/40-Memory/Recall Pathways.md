@@ -1,14 +1,33 @@
 ---
 title: Recall Pathways
 tags: [memory, core]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [evals/test_memory_recall.py]
 ---
 
 # Recall Pathways
 
 How memory gets *retrieved*. Getting this right is what separates a system that
 remembers usefully from one that either forgets or drowns.
+
+> [!info] Still not built — but the reason has shrunk, 2026-09-17
+> The gate routes to [[Vector Store]], [[Knowledge Graph]] and [[Trade Ledger]].
+> **All three exist now**; what is missing is the hybrid score that weighs them
+> (`w1·vector + w2·graph + w3·recency + w4·priority`) and the gate that decides
+> when to retrieve at all. Vector-only recall is reachable today through
+> `genesis memory search` and is deliberately *not* the default retrieval path:
+> pure similarity returns the most similar memory, which is frequently not the
+> most relevant one.
+>
+> The original reason — "a gate today could only ever return `none`" — no longer
+> holds. What it now waits on is content: the store fills from the vault
+> nightly, and weights tuned against an empty corpus are weights tuned against
+> nothing.
+>
+> It belongs with the layers it routes to. What Phase 2 owes it is the shape of
+> the call site, and that exists: context assembly happens in one place on the
+> voice path (`orchestrator/loop.py`), so the gate slots in ahead of it without
+> restructuring.
 
 ## The recall gate
 

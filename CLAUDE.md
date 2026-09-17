@@ -1,8 +1,9 @@
 # Genesis Agent
 
-A voice-driven, multi-agent autonomous trading system. Roughly 30 agents in five
-families, an always-on daemon, a five-layer memory fabric, and an unbypassable
-pre-trade risk gate.
+An agentic trading terminal. The trader commands it by typing or by speaking;
+an orchestrator acts as their senior analyst and puts roughly 30 agents in five
+families to work — over an always-on daemon, a five-layer memory fabric, and an
+unbypassable pre-trade risk gate.
 
 **The specification lives in `Genesis Markdown/` — an Obsidian vault.**
 It is not background reading. It is the source of truth for what gets built.
@@ -55,6 +56,47 @@ exist.
 
 ---
 
+## The human commands. Genesis advises.
+
+Read `10-Architecture/Operating Model.md` before building anything a person
+touches. `Biological Design` says what kind of thing Genesis is; this says what
+it is *for* and who is in charge of it.
+
+Genesis is a research firm with one client, and the client owns it. The trader is
+the **head trader** — they decide, they command, they own the P&L. The
+orchestrator is the **senior analyst** — it takes a question, works out what
+would answer it, puts the ~30 agents on it, and comes back with a briefing. The
+agents are the staff. Build for *"I have thirty analysts on my desk"*, not
+*"I have a chatbot with a terminal attached"*.
+
+Four rules constrain code directly, and each has already been violated by
+something that shipped:
+
+1. **The parity rule.** Anything Genesis can do, a person can do by hand —
+   through the same door, with the same audit line. A capability reachable only
+   by saying a sentence and hoping the router picks it **is not shipped**. The
+   reason is verification, not convenience: a system where the model reaches
+   further than its operator is one where the operator cannot check its work.
+2. **The canvas opens empty.** Nothing is on screen that was not asked for, by
+   the human or by Genesis acting on the human's request — safety floor
+   excepted. Discoverability lives in the command line, not in a pre-populated
+   screen. A first screen full of unrequested telemetry teaches the operator
+   that things appear on their own.
+3. **Typed and spoken are one path.** Both hit the same command table and the
+   same orchestrator behind it. Unplugging the microphone must remove no
+   capability. Genesis drives the workspace through the *same* dock API the
+   human does — one function, two callers, no private channel.
+4. **Nobody knows the ticker.** "Nvidia" resolves to `NVDA` by deterministic
+   lookup, never by asking a model. Ambiguity is surfaced, never guessed, and
+   what got resolved is shown. Not everything is a symbol — "Gann" is a research
+   subject.
+
+Data that is merely *presented* is a Bloomberg panel. Genesis **collects,
+computes and orchestrates** — an answer arrives with the work behind it
+attached: who ran, on what data, as of when.
+
+---
+
 ## The vault is the brain. Read it before you write.
 
 Three rules, in order of importance.
@@ -76,7 +118,7 @@ one or two notes, stop. If you need breadth rather than depth, delegate to the
 `[[Risk Envelope]]` is a note at a real path. Note names are unique, so resolve
 with `Glob **/Risk Envelope.md`, or look it up in
 `Genesis Markdown/00-Meta/Vault Map.md` — a generated name → path table for all
-91 notes. `[[Note|display text]]` links to `Note`; the part after `|` is only a
+123 notes. `[[Note|display text]]` links to `Note`; the part after `|` is only a
 label. Inside markdown tables the pipe is escaped as `\|`.
 
 A note's **Related** line at the bottom is a curated list of what else matters
@@ -90,6 +132,7 @@ for that component. Treat it as the next-steps index, not decoration.
 |---|---|
 | Starting any session | `Genesis Markdown/Genesis Agent — Home.md` |
 | Designing *anything* | `10-Architecture/Biological Design.md` — which organ, reflex or judgement? |
+| Building anything a person touches | `10-Architecture/Operating Model.md` — who commands, who advises, parity rule |
 | Deciding what to build next | `00-Meta/Build Order.md` |
 | Building an agent | `20-Agents/<Family>/Agent — <Name>.md` — and only that one |
 | Adding *any* new agent | `10-Architecture/Agent Contract.md` first |
@@ -97,7 +140,8 @@ for that component. Treat it as the next-steps index, not decoration.
 | Changing a data shape | `70-Schemas/` — authoritative, update in the same commit |
 | Wiring a tool or MCP server | `30-MCP/MCP Gateway.md` |
 | Writing anything that stores or recalls | `40-Memory/Memory Fabric.md` |
-| Building UI | `60-UI/Dashboard.md`, `60-UI/Widget Catalog.md` |
+| Building UI | `10-Architecture/Operating Model.md` §3–5 first, then `60-UI/UI Stack.md`, `60-UI/Workspaces.md`, `60-UI/Terminal.md`, `60-UI/Widget Catalog.md` |
+| Adding a command, a panel, or a tool surface | `60-UI/Terminal.md` — and check the parity rule holds both ways |
 | Voice, wake word, TTS | `10-Architecture/Voice Stack.md` + `60-UI/Voice UX.md` |
 | Picking a model tier | `10-Architecture/LLM Model Tiers.md` |
 | Reusing prior work | `80-Repos/Repo Map.md` |
@@ -126,6 +170,19 @@ When you finish a component, **update both sides** and run
 `python3 scripts/build_vault_map.py`. The vault then doubles as a live build
 tracker — `00-Meta/Vault Map.md` shows at a glance what is spec, what is in
 flight, and what is done.
+
+**Check it rather than trusting it:**
+
+```bash
+python3 scripts/check_body_map.py          # report drift, exit 1 if any
+python3 scripts/check_body_map.py --fix    # repair cut nerves and stale statuses
+```
+
+It catches three things: code pointing at a note that does not point back, an
+`implemented_by:` naming a file that no longer exists, and a status that
+disagrees with whether any code exists. Run it before committing — the
+discipline was held by hand until 2026-09-17, and by hand is how 65 notes
+drifted.
 
 ---
 
@@ -202,6 +259,18 @@ Genesis Agent/
 └── .claude/
     ├── agents/            vault-librarian, trading-researcher
     └── commands/          /spec, /impl
+```
+
+## Running locally
+
+`./genesis up` — daemon (detached) + vite. After editing Python, run
+`./genesis reload`; nothing restarts on save. `./genesis logs | status | down`.
+
+Two doors worth knowing, both parity twins of a UI surface:
+
+```bash
+genesis account [--reconcile]      # positions, heat, P&L, ledger vs broker
+genesis memory stats | search "…" | consolidate | install-embedder
 ```
 
 ## Conventions

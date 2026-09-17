@@ -16,11 +16,12 @@
 // invariant exists to prevent. So this panel shows the current mode, explains
 // what it means, and says where the change is made.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, get, type AgentRow, type AudioDevice } from '@/api/client'
 import { useRead } from '@/api/useRead'
 import { Absent, Empty, Loading } from '@/components/States'
-import { Chip, Num, PanelBody, Section, Table } from '@/components/Primitives'
+import { Chip, Metric, Num, PanelBody, Section, Table } from '@/components/Primitives'
+import { SafetyFloor } from '@/components/SafetyFloor'
 import { speak } from '@/lib/speak'
 import { useGenesis } from '@/store/useGenesis'
 import { stagger } from '@/lib/motion'
@@ -387,6 +388,13 @@ export function ApprovalSettingsPanel() {
   const mode = useGenesis((s) => s.safety.approvalMode)
   const halted = useGenesis((s) => s.safety.halted)
   const current = MODES[mode] ?? MODES.confirm
+  // One clock, read here rather than threaded down: this panel is where the
+  // full safety readout now lives, and staleness is a function of *now*.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   return (
     <PanelBody>
@@ -406,6 +414,26 @@ export function ApprovalSettingsPanel() {
         </div>
         <div style={{ fontSize: 'var(--fs-tiny)', color: 'var(--ink-dim)', lineHeight: 1.6 }}>
           {current.note}
+        </div>
+      </Section>
+
+      {/* The full safety readout.
+        *
+        * It used to be five permanent cells in the shell chrome. In this phase
+        * four of them render an em dash -- no broker, no position, no
+        * reconciliation -- so it collapsed to a one-line strip up there and
+        * lives in full here. Same component, so the summary and the detail
+        * cannot disagree.
+        *
+        * `UI Stack §6` still holds: the strip is plain DOM, first painted, and
+        * inside its own boundary. This is the expanded view, not a second
+        * implementation. It returns to the chrome in Phase 7. */}
+      <Section title="risk readout" dense>
+        <SafetyFloor now={now} variant="full" defaultOpen />
+        <div style={{ fontSize: 'var(--fs-micro)', color: 'var(--ink-faint)', lineHeight: 1.5, marginTop: 6 }}>
+          Also on the strip at the top of the window — click it to expand in place.
+          Heat and headroom read as em dashes until there is a position to
+          measure; that is the absence of a broker, not a zero.
         </div>
       </Section>
 
@@ -440,3 +468,225 @@ export function ApprovalSettingsPanel() {
     </PanelBody>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+/**
+ * Which model serves each tier, whether it can be reached, and what it cost.
+ *
+ * Three things this panel refuses to do.
+ *
+ * **It does not probe on render.** Reachability here is "is the key present",
+ * not "did a call succeed" — a settings page that fires four completions on
+ * open bills the operator for looking at it. The live probe is
+ * `genesis config check`, which a person chooses to run.
+ *
+ * **It does not claim a change took effect.** Fleets bind their backends once,
+ * at construction, so a switched tier applies on the next daemon restart. The
+ * panel says exactly that instead of showing a satisfied green tick over a
+ * daemon still talking to the old provider.
+ *
+ * **It never renders an unpriced model as $0.00.** `cost_usd` comes back null
+ * for local models and for anything absent from the price table, and null is
+ * shown as "local" or "—". A zero would be a number the operator would budget
+ * against.
+ */
+export function ModelSettingsPanel() {
+  const { state, reload } = useRead(() => api.models(), [])
+  const [pending, setPending] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+
+  if (state.status === 'loading') return <Loading rows={4} label="model tiers" />
+  if (state.status === 'absent') return <Absent reason={state.reason} onRetry={reload} />
+
+  // `ready` with a null body is the daemon answering "available, nothing to
+  // report" — a fresh install before any model has been called.
+  const body = state.data
+  if (!body) return <Empty>no model tiers reported</Empty>
+
+  const usageFor = (tier: string) => body.usage_today.filter((u) => u.tier === tier)
+  const spend = body.usage_today.reduce((sum, u) => sum + (u.cost_usd ?? 0), 0)
+  const budgetPct = body.daily_token_budget
+    ? body.tokens_today / body.daily_token_budget : 0
+
+  const switchTo = async (tier: string, backend: string, model: string) => {
+    setPending(tier)
+    setNote(null)
+    try {
+      const result = await api.setModelTier(tier, backend, model)
+      setNote(
+        result.changed
+          ? `${result.tier} → ${result.backend}/${result.model} · restart the daemon to apply`
+          : `${result.tier} was already ${result.backend}/${result.model}`,
+      )
+      reload()
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'could not switch tier')
+    } finally {
+      setPending(null)
+    }
+  }
+
+  return (
+    <PanelBody>
+      <Section title="today" dense>
+        <div className="flex flex-wrap gap-1">
+          <Metric label="tokens" value={body.tokens_today} digits={0} />
+          <Metric
+            label="of budget"
+            value={budgetPct * 100}
+            digits={1}
+            suffix="%"
+            hint={`${body.daily_token_budget.toLocaleString()} token/day budget`}
+          />
+          <Metric
+            label="est. spend"
+            value={spend ? spend : null}
+            digits={4}
+            hint="priced tiers only; local models are free"
+            wide
+          />
+          <Metric label="calls" value={body.usage_today.reduce((n, u) => n + u.calls, 0)} digits={0} />
+        </div>
+        {/* The budget refuses now (`llm/usage.py` Budget), so this says what
+            happens at the ceiling rather than that nothing does. Degraded, not
+            halted: every tier-none path has no model in it and keeps working. */}
+        <div className="label" style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--ink-ghost)' }}>
+          {budgetPct >= 1
+            ? 'budget spent — hosted tiers are closed until midnight UTC; deterministic agents unaffected'
+            : 'at the ceiling, hosted tiers degrade until midnight UTC — deterministic agents keep working'}
+        </div>
+      </Section>
+
+      <Section title="tiers" dense>
+        <div className="flex flex-col gap-1">
+          {body.tiers.map((tier) => {
+            const used = usageFor(tier.tier)
+            const tokens = used.reduce((n, u) => n + u.total_tokens, 0)
+            const failures = used.reduce((n, u) => n + u.failures, 0)
+            const blocked = tier.dev_only && body.live_broker
+            return (
+              <div
+                key={tier.tier}
+                className="flex items-baseline gap-2"
+                style={{ fontSize: 'var(--fs-tiny)' }}
+              >
+                <span style={{ color: 'var(--ink)', width: 64 }}>{tier.tier}</span>
+                <span className="label" style={{ textTransform: 'none', letterSpacing: 0 }}>
+                  {tier.backend === 'none' ? 'deterministic code' : `${tier.backend}/${tier.model}`}
+                </span>
+                <span style={{ flex: 1 }} />
+                {tokens > 0 && (
+                  <span className="num" style={{ color: 'var(--ink-faint)' }}>
+                    {tokens.toLocaleString()} tok
+                  </span>
+                )}
+                {failures > 0 && <Chip tone="bad">{failures} failed</Chip>}
+                {tier.local && <Chip tone="good">local</Chip>}
+                {blocked ? (
+                  <Chip tone="bad">blocked — live broker</Chip>
+                ) : tier.dev_only ? (
+                  <Chip tone="warn">dev only</Chip>
+                ) : null}
+                {!tier.key_present && (
+                  <Chip tone="bad">{tier.env_var} missing</Chip>
+                )}
+                {/* A local tier with nothing pulled has no key to be missing
+                    and no vendor to be down — it just silently 404s every
+                    call. The daemon checks that over loopback, for free. */}
+                {tier.blocker && <Chip tone="bad" title={tier.blocker}>{tier.blocker}</Chip>}
+              </div>
+            )
+          })}
+        </div>
+      </Section>
+
+      <Section title="switch" dense>
+        {/* The same call `genesis config set-tier` makes — one door, two
+            callers, per the parity rule. */}
+        <div className="flex flex-col gap-1">
+          {SWITCHES.map((choice) => (
+            <button
+              key={`${choice.tier}:${choice.backend}:${choice.model}`}
+              type="button"
+              className="flex items-baseline gap-2"
+              disabled={pending !== null}
+              onClick={() => switchTo(choice.tier, choice.backend, choice.model)}
+              style={{
+                fontSize: 'var(--fs-tiny)',
+                padding: '3px 6px',
+                background: 'var(--bg-raised)',
+                border: '1px solid var(--hairline)',
+                borderRadius: 'var(--r-sm)',
+                cursor: pending ? 'wait' : 'pointer',
+                textAlign: 'left',
+                opacity: pending === choice.tier ? 0.5 : 1,
+              }}
+            >
+              <span style={{ color: 'var(--ink)', width: 58 }}>{choice.tier}</span>
+              <span className="label" style={{ textTransform: 'none', letterSpacing: 0 }}>
+                {choice.backend}/{choice.model}
+              </span>
+              <span style={{ flex: 1 }} />
+              <span className="label" style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--ink-ghost)' }}>
+                {choice.why}
+              </span>
+            </button>
+          ))}
+        </div>
+        {note && (
+          <div className="label" style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--ink-faint)' }}>
+            {note}
+          </div>
+        )}
+      </Section>
+
+      {body.history.length > 1 && (
+        <Section title="last days" dense>
+          <div className="flex flex-col gap-0.5">
+            {body.history.slice(-7).reverse().map((day) => (
+              <div key={day.day} className="flex items-baseline gap-2" style={{ fontSize: 'var(--fs-tiny)' }}>
+                <span className="num" style={{ color: 'var(--ink-faint)', width: 78 }}>{day.day}</span>
+                <span className="num" style={{ color: 'var(--ink)' }}>
+                  {(day.input_tokens + day.output_tokens).toLocaleString()}
+                </span>
+                <span className="label" style={{ textTransform: 'none', letterSpacing: 0 }}>
+                  {day.input_tokens.toLocaleString()} in · {day.output_tokens.toLocaleString()} out
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+    </PanelBody>
+  )
+}
+
+/**
+ * The switches offered.
+ *
+ * A fixed list rather than free text: these are the combinations that have
+ * actually been run on this machine, and a text box inviting any model string
+ * is a way to write a tier that 404s at the provider and only fails at the
+ * next restart. `genesis config set-tier` takes anything, for the case where
+ * you know what you are doing.
+ */
+const SWITCHES: { tier: string; backend: string; model: string; why: string }[] = [
+  // `small` is the planner — the rung that turns a sentence into dispatched
+  // agents. It had no hosted free option here, so the only way off Anthropic
+  // was Ollama, and picking that on a machine with nothing pulled left the
+  // planner answering 404 with nothing on screen to say so.
+  { tier: 'small', backend: 'gemini', model: 'gemini-flash-lite-latest', why: 'free tier, trains on prompts' },
+  { tier: 'small', backend: 'ollama', model: 'qwen2.5:3b', why: 'free, local, needs `ollama pull`' },
+  { tier: 'small', backend: 'anthropic', model: 'claude-haiku-4-5', why: 'production' },
+  // Flash-lite before flash: same free tier, far higher daily quota, and it is
+  // the one that keeps answering after flash has spent its allowance.
+  { tier: 'large', backend: 'gemini', model: 'gemini-flash-lite-latest', why: 'free tier, highest quota' },
+  { tier: 'large', backend: 'gemini', model: 'gemini-flash-latest', why: 'free tier, smarter, lower quota' },
+  { tier: 'large', backend: 'anthropic', model: 'claude-opus-5', why: 'production' },
+  { tier: 'vision', backend: 'gemini', model: 'gemini-flash-lite-latest', why: 'free tier, highest quota' },
+  { tier: 'vision', backend: 'gemini', model: 'gemini-flash-latest', why: 'free tier, smarter, lower quota' },
+  { tier: 'vision', backend: 'anthropic', model: 'claude-opus-5', why: 'production' },
+]

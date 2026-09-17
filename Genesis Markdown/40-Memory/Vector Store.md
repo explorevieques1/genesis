@@ -1,8 +1,8 @@
 ---
 title: Vector Store
 tags: [memory]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/memory/vectors.py, tests/memory/test_vectors.py]
 ---
 
 # Vector Store
@@ -73,12 +73,53 @@ less useful than yesterday's lesson about the same setup.
 
 ## Implementation
 
-Local. `sqlite-vec` (keeps everything in the one SQLite file alongside the other
-layers) or LanceDB (better at scale, separate store). Embedding model runs locally
-([[LLM Model Tiers]] embedding tier).
+**Built 2026-09-17** — `src/genesis/memory/vectors.py`, `~/.genesis/vectors.db`.
 
-For a personal trading system the corpus dominates the volume; memory itself stays
-small for years. Don't over-engineer this layer.
+Plain SQLite with `float32` blobs and cosine in numpy, not `sqlite-vec` and not
+LanceDB. The note's own last line is the reason: memory stays small for years,
+an exhaustive scan of a few thousand unit vectors is sub-millisecond, and an
+extension or a second store buys index structure this layer will not need for a
+long time. The corpus half stays [[Repo — Lithium Codebase]]'s job, which is
+where the volume actually is.
+
+`ponytail:` the scan is O(n) per search. At six figures of chunks, add
+`sqlite-vec` behind the same `VectorStore.search` signature.
+
+The embedder is `bge-small-en-v1.5` ONNX on CPU, one thread, CLS-pooled and
+unit-normalised, loaded on first use rather than at construction. Install it
+once with `genesis memory install-embedder`; the files live in
+`~/.genesis/models/<model>/` beside the databases.
+
+**There is no fallback embedder, deliberately.** A hash or random "embedding"
+would make every acceptance criterion here pass while returning nonsense, and
+nonsense that scores 0.83 is worse than an empty result. With no model
+installed the store raises `degraded` and names the missing file, and
+`genesis memory search` distinguishes *"nothing is similar"* from *"nothing is
+embedded"* from *"there is no model"* -- three different answers that all look
+like "no results".
+
+### What the store enforces
+
+| Rule | How |
+|---|---|
+| Namespace filtering before scoring | a `WHERE namespace IN (...)` clause; `search` has **no default namespace**, so it cannot accidentally search everything |
+| Model versioned per row | `model` column; `search` filters to the current model, `stale()` counts the rest, `reembed()` moves them |
+| Mixed models never averaged | a vector from another model is invisible to search rather than scored against |
+| Store the source | the chunk text is a column; re-embedding never re-derives it |
+| Deduplicate | content hash, plus cosine ≥ 0.98 within the same namespace and kind |
+| Nothing untrusted verbatim | a `Fenced` object handed to `write` raises; `embeddable` is `False` by construction |
+| No secrets | the log's own `redactor` scrubs on the way in, never after |
+
+### Not built
+
+- **Hybrid scoring.** `score = w1·vector + w2·graph + w3·recency + w4·priority`
+  is [[Recall Pathways]]', and this layer is the first of its four inputs to
+  exist. Vector-only recall is available now and is *not* the default retrieval
+  path for exactly the reason this note gives.
+- **The corpus half.** See [[Repo — Lithium Codebase]] and [[Open Questions]] §9.
+- **Re-embedding without downtime.** `reembed()` moves rows in batches and both
+  halves stay searchable by their own model, which is the no-hole version of
+  that requirement rather than the no-downtime one.
 
 ## Acceptance criteria
 

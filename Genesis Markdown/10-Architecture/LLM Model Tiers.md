@@ -2,7 +2,7 @@
 title: LLM Model Tiers
 tags: [architecture]
 status: building
-implemented_by: [src/genesis/llm/backend.py]
+implemented_by: [src/genesis/llm/backend.py, src/genesis/llm/anthropic_backend.py, src/genesis/llm/openai_compat.py, src/genesis/llm/usage.py, src/genesis/llm/tiers.py, src/genesis/cli.py, src/genesis/llm/parse.py, tests/llm/test_anthropic_tool_loop.py, tests/llm/test_bad_request.py, tests/llm/test_ollama_status.py, tests/llm/test_providers.py]
 ---
 
 # LLM Model Tiers
@@ -107,6 +107,54 @@ That last row is the important one. **Nothing safety-critical or arithmetic runs
 an LLM.** Risk checks, P&L, position sizing, and metrics are deterministic code with
 unit tests. LLMs propose; deterministic code disposes.
 
+## Development tiers
+
+The tier table above is the **production** assignment. Development is a separate
+question it does not answer, and answering it badly costs real money: exercising
+the orchestrator against `claude-opus-5` bills the operator for every loop
+iteration of work that is testing plumbing, not reasoning.
+
+So `backend` on each tier names a provider, and the same tier table can be
+pointed somewhere free. `config-dev.example.yaml` is that profile, selected by
+`GENESIS_CONFIG` — a whole config file, not a flag, because most callers reach
+config through a bare `load_config()` and a profile that applies to only part of
+the process is worse than none.
+
+| Backend | Cost | Where it is fit for | Caveat |
+|---|---|---|---|
+| `anthropic` | paid | everything, including live | the production path |
+| `ollama` | free | `small` — tool routing, summarisation, note formatting | **measured 2026-09-07:** `qwen2.5:3b` warm p50 **352 ms**, cold load 16.5 s. Off the voice path |
+| `gemini` | free tier | `large`, `vision` in development | **Google trains on free-tier prompts.** Flash/Flash-Lite only since Pro left the free tier in April 2026; ~15 rpm, 1500/day |
+| `groq`, `openrouter` | free tier | same | same class of trade |
+
+### The dev-only guard is structural
+
+A free tier that trains on its prompts must never see a live thesis, position,
+or P&L. That is not a comment in a config file — `_tier_backend` **refuses to
+build** a `dev_only` provider when the broker is live, and every provider in
+`PROVIDERS` carries the flag. Under [[Biological Design]] §reflex arc this is
+spinal: "remember to switch the profile back" is exactly the instruction a
+reflex exists to replace.
+
+The profile split is what makes that refusal rare rather than routine. Editing
+the tier table in `~/.genesis/config.yaml` directly is the configuration where
+one forgotten edit runs a development model against real money.
+
+### Switching a tier
+
+One function, two doors ([[Operating Model]] §parity rule):
+
+```
+genesis config set-tier large gemini gemini-flash-latest   # typed
+POST /v1/settings/models/set                               # the Models panel
+```
+
+Both call `llm/tiers.py::set_tier`, which validates by loading the merged config
+back before it writes, and writes atomically. **A tier change takes effect on
+daemon restart** — fleets bind their backends once at construction — and both
+doors say so rather than showing a green tick over a daemon still talking to the
+old provider.
+
 ## Cost control
 
 - Per-agent token budget per day; exceeding it degrades the agent to a lower tier
@@ -120,6 +168,33 @@ unit tests. LLMs propose; deterministic code disposes.
 - Closed-market work batches through the Batch API at 50% cost; open-market work
   streams.
 - The [[Dashboard]] shows spend by agent so an expensive agent is visible, not silent.
+
+**Token accounting is built; enforcement is not.** `llm/usage.py` records every
+call — provider-reported token counts, never a local estimate, because a budget
+enforced against our own tokeniser is a budget that disagrees with the invoice.
+`MeteredBackend` wraps every tier, and the meter swallows its own storage errors:
+instrumentation that can take down the thing it measures is a worse bug than a
+gap in the data. Read it with `genesis config usage` or the **Models** panel.
+
+**`daily_token_budget` refuses now** (2026-09-17, `llm/usage.py` `Budget`). The
+sense came first on purpose — never build an actuator before the sense that
+verifies it acted ([[Biological Design]] §proprioception) — and this is the
+regulator that was waiting on it.
+
+- One ceiling per *day*, shared by every tier. Per-tier budgets would let the
+  large tier eat the day and leave the small tier a number it can never reach.
+- The day's spend is read from the meter once and tracked in memory as calls
+  land. A `SELECT SUM(...)` before every call would put a disk read on the hot
+  path; the in-memory count can only drift *low*, which makes the ceiling
+  slightly generous rather than slightly arbitrary.
+- Past the ceiling, a hosted call raises **`degraded`**, never `fatal`. Every
+  deterministic path — risk, the accountant, the level watcher, the kill switch
+  — has no model in it and keeps working, which is the whole point of
+  `tier: none`. Spoken: *"I've spent today's model budget, so I'm working
+  without a model."*
+- An unreadable meter does **not** close the tier. Refusing every call because
+  the *counter* broke would take the system down to protect a cost limit.
+- `daily_token_budget: 0` disables the ceiling; the meter still records.
 
 ## Degradation
 
@@ -138,6 +213,66 @@ unit tests. LLMs propose; deterministic code disposes.
 - No safety-critical decision has an LLM in its call path (prove by test).
 - Killing the hosted endpoint leaves risk, P&L, and kill switch fully functional —
   and leaves wake/intent working, since nano is local.
+
+## Every provider, through one builder
+
+`genesis.llm.tiers.build_tier` constructs a tier and returns it metered, or
+returns `None` and a note saying why. Two callers: `cli._tier_backend` for the
+fleets, and [[Orchestrator|build_ladder]] for the answer ladder.
+
+It is one function because it was two. The CLI copy learned `gemini`, `groq`,
+`openrouter` and `ollama`; the ladder's copy built `anthropic` inline and noted
+*"large tier backend 'gemini' is not wired yet"* for everything else. So a free
+tier answered on the command line and the terminal said **"I can't reach my
+reasoning model right now"** — the same capability present through one door and
+absent through another, which [[Operating Model]] §1 exists to forbid.
+
+## Gemini thinks out of your token budget
+
+`gemini-flash-latest` reasons before it writes, spends that reasoning from the
+**same `max_tokens`** the answer comes from, and returns none of it. Measured
+live at the Reasoner's own default of 300:
+
+| request | finish | visible tokens | result |
+|---|---|---|---|
+| plain | `length` | 11 | cut off mid-sentence |
+| `reasoning_effort: "none"` | `stop` | 64 | complete |
+
+At smaller budgets it returns an **empty string with a 200**. So the provider
+entry sends `reasoning_effort: "none"` on every call, and
+`OpenAICompatBackend` refuses an empty completion rather than passing `""` up
+as an answer — Conventions §Errors, and an empty string is a confabulation when
+the model never spoke.
+
+`reasoning_effort` is a **per-model** capability, not a per-provider one:
+`gemini-flash-latest` needs it, and `gemini-flash-lite-latest` rejects the same
+request with `400 invalid argument` and cannot run at all. The provider table
+only knows the provider, so the backend sends it, and on a 400 drops it and
+retries — once, then remembers. A model list would go stale the next time
+Google ships a name.
+
+Its free tier also returns `503 "high demand"` constantly — two failures in
+three calls on an idle key. A 503 is retried twice with a short backoff; a 429
+is not, because a quota is spent rather than busy and retrying spends it
+faster. Both quotas are per-model: `gemini-flash-latest` runs out long before
+`gemini-flash-lite-latest`, which is why the flash-lite switch is offered
+first in `MT`.
+
+## A local tier can look configured and be dead
+
+A hosted tier without a key says so on the settings panel. Ollama has no key to
+be missing and no vendor to be down, so `ollama pull` never having been run is
+invisible — and a `small` tier pointed at an unpulled `qwen2.5:3b` answers every
+planning request with a 404 while the panel shows a green **local** chip. That
+is what took the planner down on this machine, and nothing on the surface said
+so.
+
+`backend.ollama_status()` asks Ollama's own model list over loopback. Free,
+instant, and no vendor involved — which is why it is safe to run on a settings
+render where probing a *hosted* tier would bill the operator for opening a
+panel. The panel shows the answer as the blocker chip: *"ollama has no models
+pulled — run `ollama pull qwen2.5:3b`"*.
+
 
 ## Related
 

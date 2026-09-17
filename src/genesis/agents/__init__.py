@@ -7,12 +7,16 @@ from genesis.agents.base import (
     AgentState,
     Cadence,
     Health,
+    SPINAL_AGENTS,
+    SPINAL_FAMILIES,
     Status,
     TaskFailure,
     TaskResult,
 )
 
 __all__ = [
+    "SPINAL_AGENTS",
+    "SPINAL_FAMILIES",
     "Agent",
     "AgentDeclaration",
     "AgentState",

@@ -1,8 +1,8 @@
 ---
 title: Biological Design
 tags: [architecture, moc, philosophy]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/voice/reflex.py, ui/src/components/PhaseMark.tsx, tests/test_reflex.py, ui/src/workspace/panels/system.tsx]
 ---
 
 # 🧬 Biological Design
@@ -135,13 +135,28 @@ of linked notes describing every organ, its interface, its constraints and its
 failure modes — not training data the model half-remembers, but a retrievable
 map of the actual body, kept in sync with the actual code.
 
-Three mechanisms already make it real:
+Four mechanisms make it real:
 
 | Mechanism | Biological role |
 |---|---|
 | `implemented_by:` frontmatter | The nerve from the map to the organ it describes |
 | [[Vault Map]] | The index — how a signal finds the right note |
 | Spec-pointer comment in every source file | The return nerve, organ back to map |
+| `scripts/check_body_map.py` | The reflex test — it fails when the map lies |
+
+> [!warning] The map was lying in 65 places — 2026-09-17
+> A rule with no test is a preference. `check_body_map.py` was written to test
+> hard rule 6 and immediately found 56 **cut forward nerves** (code carrying
+> `# Spec:` for a note whose `implemented_by:` never mentioned it) and 9 stale
+> statuses — including [[MCP Gateway]] at `status: spec` with 3,859 lines
+> behind it. The discipline had been held by hand, and by hand is how it drifts.
+>
+> Three kinds of drift, and the third is the one to watch: a **phantom limb**,
+> where `implemented_by:` names a file that no longer exists. `--fix` repairs
+> cut nerves and stale statuses, because both are provable from the code. It
+> never removes a phantom limb: a missing file is either an unrecorded deletion
+> or a typo, and silently guessing which is the failure the script exists to
+> catch.
 
 > [!important] Spec drift *is* proprioceptive drift
 > These are the same failure wearing two names. A note that says the risk engine
@@ -191,7 +206,12 @@ Concrete, and each one is checkable:
    is this? If it has no biological role, it may not be a component.
 2. **Every component declares reflex or judgement.** `tier: none` is the
    architectural statement "this is spinal". A component that wants a model must
-   justify why its decision is genuinely ambiguous.
+   justify why its decision is genuinely ambiguous. Enforced at load time by
+   `AgentDeclaration`: `SPINAL_FAMILIES` (execution, whole) plus
+   `SPINAL_AGENTS`, the named reflexes that live in families which otherwise
+   think. That second list was missing until 2026-09-17, so `level-watcher` —
+   family `charting`, and the agent that decides whether a price crossed a line
+   — could have been handed a model with nothing objecting.
 3. **Every tool declares afferent or efferent**, and the [[MCP Gateway]] applies
    the matching policy.
 4. **Proprioception ships before the muscle it monitors.** No actuator without

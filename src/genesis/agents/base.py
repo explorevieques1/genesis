@@ -32,8 +32,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from genesis.errors import FailureClass, GenesisError
+from genesis.mcp.allowlist import matches
 
 __all__ = [
+    "SPINAL_AGENTS",
+    "SPINAL_FAMILIES",
     "Agent",
     "AgentDeclaration",
     "AgentState",
@@ -102,6 +105,29 @@ class MemoryAccess(BaseModel):
         return tuple(v) if isinstance(v, list) else v
 
 
+#: Families with no model anywhere in them. Safety Invariants §3 names the
+#: execution family whole; nothing in it reasons, it all arithmetics.
+SPINAL_FAMILIES = ("execution",)
+
+#: The named exceptions -- reflexes that live in a family which otherwise
+#: thinks. The guard used to cover the execution family alone, so
+#: ``level-watcher`` (family ``charting``) could have acquired a model without
+#: anything objecting, and the agent that decides whether a price crossed a
+#: line is the last place a sampler belongs. The value is why, so the error
+#: message can say it.
+SPINAL_AGENTS = {
+    "level-watcher": "a price comparison, not a judgement",
+    "backtest-runner": "arithmetic over bars",
+    "optimizer": "a parameter sweep",
+    "risk-metrics": "arithmetic",
+    "portfolio-allocation": "position sizing",
+    "prop-firm-guard": "a limit check",
+    "position-accountant": "position and P&L arithmetic",
+    "news-collector": "gathers and stores; it never reads meaning",
+    "watchdog": "health thresholds",
+}
+
+
 class AgentDeclaration(BaseModel):
     """The YAML block at the top of every agent note, as a validated object.
 
@@ -130,18 +156,32 @@ class AgentDeclaration(BaseModel):
         return tuple(v) if isinstance(v, list) else v
 
     def model_post_init(self, _: Any) -> None:
-        # Safety Invariants: the whole execution family is tier none. A language
-        # model never sizes a position or computes a stop, so an execution agent
-        # declaring a model tier is a spec violation caught at load time.
-        if self.family == "execution" and self.model_tier != "none":
+        # Biological Design §1: these are spinal cord, not "agents we have not
+        # given a model to yet", and giving one a model is the bug. Caught at
+        # load time because a reflex cannot be talked out of firing by a
+        # persuasive prompt -- but it *can* be quietly promoted by an edit.
+        if self.family in SPINAL_FAMILIES and self.model_tier != "none":
             raise ValueError(
-                f"agent {self.id!r} is in the execution family and must be "
+                f"agent {self.id!r} is in the {self.family} family and must be "
                 f"model_tier 'none', got {self.model_tier!r} — see Safety Invariants"
             )
+        if self.id in SPINAL_AGENTS and self.model_tier != "none":
+            raise ValueError(
+                f"agent {self.id!r} is {SPINAL_AGENTS[self.id]} and must be "
+                f"model_tier 'none', got {self.model_tier!r} — see Safety Invariants §3"
+            )
 
-    def may_use_tool(self, tool: str) -> bool:
-        """The allow-list check. The gateway rejects anything this refuses."""
-        return tool in self.tools
+    def may_use_tool(self, capability: str) -> bool:
+        """The allow-list check. The gateway rejects anything this refuses.
+
+        Entries are capability patterns, and ``prefix.*`` grants a namespace --
+        one matcher, shared with :mod:`genesis.mcp.allowlist`, because two
+        implementations of an allow-list is one implementation and one bug.
+        Exact matching alone would have quietly refused every real tool for an
+        agent declared with ``genesis-execution.*``, which is how MCP Gateway.md
+        writes a whole grant.
+        """
+        return any(matches(p, capability) for p in self.tools)
 
     def may_write(self, namespace: str) -> bool:
         """Single-writer namespaces: an agent writes its own, never another's."""

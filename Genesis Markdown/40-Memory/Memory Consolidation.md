@@ -1,11 +1,37 @@
 ---
 title: Memory Consolidation
 tags: [memory]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/memory/consolidate.py, tests/memory/test_consolidate.py]
 ---
 
 # Memory Consolidation
+
+> [!info] Built 2026-09-17 — six of eight passes
+> `src/genesis/memory/consolidate.py`, triggered by [[Agent — Digest]]'s 21:00
+> cron (the note puts this pass "alongside" it, and the digest is the component
+> holding that clock). By hand: `genesis memory consolidate`.
+>
+> **Pass 3, promote observations to beliefs, is not built.** `graph.py` gives
+> the reason and it has not changed: promotion needs a corpus of repeated
+> observations this system has not accumulated, and a belief promoted from
+> three observations is worse than no belief. The `belief` entity type exists
+> so this has somewhere to write, and passes 4's weakening and retirement are
+> built and waiting for it.
+>
+> **Pass 5 is half built.** Edited vault notes are detected and re-embedded, so
+> a correction reaches retrieval the next day. Reconciling an edited thesis back
+> into the graph *while keeping "your edit always wins"* needs a per-note
+> version history that does not exist; building the merge before the history is
+> how the losing version becomes unrecoverable.
+>
+> **Pass 6 does not delete.** The [[Episodic Log]]'s `BEFORE DELETE` trigger
+> makes that structural. Compaction writes a summary row that stands in for the
+> detail and leaves the rows where they are — [[Memory Fabric]]'s "summarised,
+> never deleted". The collapsible/never-collapsible decision is
+> [[Agent — Digest]]'s `compress()`, called from here rather than
+> reimplemented: two implementations of "may this row be collapsed?" is one
+> implementation and one silent data loss.
 
 The nightly job that keeps memory useful rather than merely large. Runs at 21:00 ET
 alongside [[Agent — Digest]] ([[Daemon And Cadence]]).

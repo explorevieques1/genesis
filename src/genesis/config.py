@@ -36,12 +36,19 @@ __all__ = [
     "ConfigError",
     "Secrets",
     "DEFAULT_CONFIG_PATH",
+    "LiveConfig",
     "default_config_text",
     "load_config",
     "load_secrets",
 ]
 
-DEFAULT_CONFIG_PATH = Path("~/.genesis/config.yaml")
+#: ``GENESIS_CONFIG`` selects a whole config profile -- the mechanism behind
+#: the development tier table (see ``config-dev.example.yaml``). It is read
+#: here rather than plumbed through ``--config`` because most callers reach
+#: config through a bare ``load_config()``: the daemon, the read API, the
+#: command table and the voice routes all would have ignored the flag, and a
+#: profile switch that applies to some of the process is worse than none.
+DEFAULT_CONFIG_PATH = Path(os.environ.get("GENESIS_CONFIG") or "~/.genesis/config.yaml")
 _PACKAGED_DEFAULTS = Path(__file__).with_name("default_config.yaml")
 
 
@@ -167,6 +174,14 @@ class Risk(_Strict):
     symbol_allowlist: list[str]
     session_window: SessionWindow
     prop_firm: PropFirm | None = None
+    #: Futures limits (Open Questions §1: IBKR, CME futures). A percentage of
+    #: equity means nothing against an NQ contract's notional, so futures are
+    #: capped in contracts and dollars instead.
+    max_contracts_per_symbol: int = Field(default=2, ge=1, le=100)
+    max_daily_loss_usd: Decimal = Field(default=Decimal("2000"), gt=0)
+    #: Fat-finger band: a limit or absolute stop this far from the arrival
+    #: quote is refused.
+    max_price_deviation_pct: _Pct = Field(default=Decimal("2.0"), gt=0, le=50)
 
     @field_validator("symbol_allowlist")
     @classmethod
@@ -191,15 +206,131 @@ class Brokers(_Strict):
     primary: Broker
 
 
+class Execution(_Strict):
+    """Wiring for the order path. The limits live in :class:`Risk`, the mode in
+    :class:`Approval`; this is only where and how the path connects.
+
+    Paper only. The broker connection refuses to start unless
+    ``brokers.primary.mode`` is ``paper`` *and* IBKR reports a paper account id.
+    """
+
+    enabled: bool = False
+    #: IBKR client ids. The order connection must keep the same id across
+    #: restarts: IBKR lets only the placing client modify or cancel an order.
+    client_id: int = 30
+    killswitch_client_id: int = 31
+    killswitch_port: int = Field(default=8766, gt=0, lt=65536)
+    #: ledger.db, quality.db, halt.json, audit.jsonl
+    state_dir: Path = Path("~/.genesis/execution")
+    #: How long a position may sit without a working stop before it is flattened.
+    protective_grace_sec: int = Field(default=5, gt=0, le=60)
+
+    _exp = field_validator("state_dir")(classmethod(lambda cls, v: _expand(v)))
+
+
 class Data(_Strict):
     primary_feed: str
     realtime: bool
     universe: Literal["watchlist", "sp500", "custom"]
 
 
+class MarketDataAdapter(_Strict):
+    """One vendor's wiring. See 10-Architecture/Market Data Plane.md.
+
+    ``tier`` is here rather than hardcoded in the adapter because promoting a
+    source is a *decision*, and a decision belongs somewhere reviewable. IBKR
+    arrives at tier 3 and is promoted to 1 only after the reconciliation
+    against Databento is measured and recorded -- "it connected" is not
+    evidence of execution truth.
+    """
+
+    enabled: bool = True
+    tier: int = Field(default=3, ge=1, le=4)
+    host: str | None = None
+    port: int | None = None
+    #: IBKR only: delayed | realtime. Delayed needs no subscription and
+    #: exercises every line of the path, so it is the honest default.
+    market_data_type: Literal["delayed", "realtime"] | None = None
+    #: Databento: history only. It cannot serve live and must not be asked to.
+    historical_only: bool = False
+    #: IBKR: the API client id. Two processes sharing one ejects both, so the
+    #: daemon and an ad-hoc CLI run must not collide.
+    client_id: int | None = None
+    #: IBKR: run the reconnect Watchdog. Off only for tests -- its soft-timeout
+    #: probe is the defence against a wedged subscription, which is the failure
+    #: that is silent.
+    use_watchdog: bool = True
+    #: CSV replay root.
+    root: Path | None = None
+
+    _exp = field_validator("root")(
+        classmethod(lambda cls, v: _expand(v) if v is not None else v)
+    )
+
+
+class MarketData(_Strict):
+    """The market data plane's configuration.
+
+    ``chains`` is Market Data Sources' per-consumer fallback list, resolved in
+    one place instead of inside each agent. Adding IBKR once the adapter exists
+    is an edit here -- a config change, not a code change, which was the point
+    of building the plane before the broker.
+    """
+
+    store_path: Path = Path("~/.genesis/market/market.duckdb")
+    budget_path: Path = Path("~/.genesis/market/budget.db")
+
+    # The house convention, applied here too. The stores call `.expanduser()`
+    # themselves, so this is not load-bearing today -- but a literal
+    # "~/.genesis/..." directory appearing in the repo the first time some
+    # future caller forgets is the failure it prevents, and consistency with
+    # Memory/Logging is worth more than the two lines.
+    _exp = field_validator("store_path", "budget_path")(
+        classmethod(lambda cls, v: _expand(v))
+    )
+    adapters: dict[str, MarketDataAdapter] = Field(default_factory=dict)
+    chains: dict[str, list[str]] = Field(default_factory=dict)
+    #: Series `genesis serve` keeps streaming from IBKR into the store, as
+    #: ``{symbol_id, timeframe}``. An explicit contract month, never "the
+    #: front month" (Open Questions §13) -- rolling is an edit here.
+    live: list[dict[str, str]] = Field(default_factory=list)
+
+    def chain_for(self, consumer: str) -> list[str]:
+        """The ordered adapter names for a consumer, falling back to default.
+
+        An explicitly EMPTY chain means "store only" and must not fall through
+        to the default. `backtests: []` is Market Data Sources' "stored bars
+        only" row, and resolving it to the default chain would let a backtest
+        reach a vendor -- which is both the wrong data and, given IBKR's
+        two-year expired-contract limit, silently incomplete data.
+
+        So this tests membership rather than truthiness. `or` would be the
+        natural spelling and would be wrong in exactly the case that matters.
+        """
+        if consumer in self.chains:
+            return self.chains[consumer]
+        return self.chains.get("default", [])
+
+
+#: Every backend a tier may name. Validated at load so a typo is a config
+#: error with the list attached, not a tier that silently resolves to None
+#: three minutes into a run.
+LLM_BACKENDS = frozenset(
+    {"none", "anthropic", "ollama", "onnx-local", "gemini", "groq", "openrouter"}
+)
+
+
 class LLMTier(_Strict):
     backend: str
     model: str
+
+    @field_validator("backend")
+    @classmethod
+    def _known_backend(cls, value: str) -> str:
+        if value not in LLM_BACKENDS:
+            known = ", ".join(sorted(LLM_BACKENDS))
+            raise ValueError(f"unknown backend {value!r}; expected one of: {known}")
+        return value
 
 
 class LLM(_Strict):
@@ -246,6 +377,8 @@ class Config(_Strict):
     risk: Risk
     brokers: Brokers
     data: Data
+    marketdata: MarketData = Field(default_factory=MarketData)
+    execution: Execution = Field(default_factory=Execution)
     llm: LLM
     memory: Memory
     # Agent blocks vary per agent and grow through Phases 1-10; validated by the
@@ -271,10 +404,56 @@ class Config(_Strict):
 SECRET_ENV_VARS: tuple[str, ...] = (
     "ELEVENLABS_API_KEY",
     "ANTHROPIC_API_KEY",
+    # Not a credential — the id of the workspace an identity-linked Anthropic
+    # key acts in. Required whenever ANTHROPIC_API_KEY is identity-linked: the
+    # SDK sends it as the `anthropic-workspace-id` header and every request is
+    # a 400 without it. Listed here because this tuple is the only channel the
+    # config layer reads environment from. See Config And Secrets §Secrets.
+    "ANTHROPIC_WORKSPACE_ID",
     "ALPACA_API_KEY",
     "ALPACA_SECRET_KEY",
     "MARKET_DATA_API_KEY",
     "NEWS_API_KEY",
+    # MCP Server Catalog §web. The gateway's server configs name the variables
+    # they need; a name absent from this tuple is never read from the .env
+    # file, so wiring a server means adding it here too.
+    "EXA_API_KEY",
+    # Development model providers (LLM Model Tiers §Development tiers). Free
+    # tiers used to exercise the orchestrator without burning Anthropic
+    # credits; never on a live-broker path -- `_tier_backend` refuses to build
+    # them when the broker is live.
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "OPENROUTER_API_KEY",
+    # MCP Server Catalog §fundamentals and §work. SEC_EDGAR_USER_AGENT is not
+    # a credential — EDGAR asks for a contact string and 403s an anonymous
+    # client — but this tuple is the only channel the config layer reads
+    # environment from, and a server that needs a variable must be able to
+    # name it.
+    "SEC_EDGAR_USER_AGENT",
+    "FRED_API_KEY",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+    # The market-data bench: configured, disabled, listed here so that turning
+    # one on is a flag rather than a hunt for which variable it wanted.
+    # ALPACA_TOOLSETS is deliberately NOT here — it is behaviour, not a
+    # credential, and lives in `env:` in default_servers.yaml where it is
+    # versioned and reviewable.
+    # Open Questions §6 (2026-09-04): historical ONLY, on free credits. IBKR
+    # cannot serve backtests -- expired futures contracts more than two years
+    # past expiry are gone from its API, and its historical endpoint paces at
+    # 60 requests per 10 minutes -- so history and live come from different
+    # vendors by necessity. That split is why Market Data Plane is
+    # adapter-shaped.
+    "DATABENTO_API_KEY",
+    "ALPHAVANTAGE_API_KEY",
+    "FINANCIAL_DATASETS_API_KEY",
+    "FINNHUB_API_KEY",
+    # The IBKR login name, so the account panel can say which login the
+    # gateway is using. IB_PASSWORD is deliberately absent: only the gateway
+    # container reads it, and Genesis has no reason to ever hold it.
+    "IB_USERID",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
 )
 
 
@@ -385,6 +564,80 @@ def load_config(path: Path | None = DEFAULT_CONFIG_PATH) -> Config:
         return Config.model_validate(merged)
     except ValidationError as exc:
         raise ConfigError(_format_validation_error(exc, path)) from exc
+
+
+class LiveConfig:
+    """A config that notices its file changed. The endocrine system.
+
+    Config And Secrets loads once at start-up, which is right for almost
+    everything: the fleets bind their backends at construction, so a tier
+    change *cannot* take effect without a restart and both doors say so rather
+    than showing a control that does nothing ([[LLM Model Tiers]]).
+
+    The risk envelope is the exception, and it is the one that matters. A
+    limit you must restart the daemon to tighten is a limit you will not
+    tighten at 15:40 in a drawdown -- which is exactly when tightening is the
+    point. Hormones are slow global state, not a boot argument.
+
+    Three properties, each chosen because the alternative is worse:
+
+    **It re-reads on mtime, and only when asked.** No thread, no inotify: the
+    check happens when a caller wants a value, which for the risk envelope is
+    once per order proposal. A background watcher would swap the envelope
+    underneath a half-evaluated proposal.
+
+    **A broken file keeps the last good config.** Fail closed means *the limits
+    already in force stay in force*: a YAML typo must not widen a limit, and it
+    must not stop the system either. The error is reported once per change, not
+    on every read, so a broken file does not fill the log.
+
+    **It never hands back a different object mid-decision.** :meth:`get`
+    returns one immutable :class:`Config`; the risk engine reads every value it
+    needs from that one object, so a reload between two checks cannot produce a
+    decision made against two different envelopes.
+    """
+
+    def __init__(self, path: Path | None = DEFAULT_CONFIG_PATH, *, on_error: Any = None) -> None:
+        self.path = path
+        self._on_error = on_error
+        self._config = load_config(path)  # a bad config at boot still refuses to start
+        self._stamp = self._mtime()
+        self.reloads = 0
+        self.last_error: str | None = None
+
+    def _mtime(self) -> float | None:
+        if self.path is None:
+            return None
+        try:
+            return self.path.expanduser().stat().st_mtime
+        except OSError:
+            return None
+
+    def get(self) -> Config:
+        """The current config, re-reading the file if it changed."""
+        stamp = self._mtime()
+        if stamp == self._stamp:
+            return self._config
+        self._stamp = stamp
+        try:
+            self._config = load_config(self.path)
+            self.reloads += 1
+            self.last_error = None
+        except ConfigError as exc:
+            # Keep the last good one. The limits in force stay in force.
+            self.last_error = str(exc)
+            if self._on_error is not None:
+                self._on_error(exc)
+        return self._config
+
+    def state(self) -> dict[str, Any]:
+        """What a person needs to see: did it reload, and is the file valid?"""
+        return {
+            "path": None if self.path is None else str(self.path.expanduser()),
+            "reloads": self.reloads,
+            "valid": self.last_error is None,
+            "error": self.last_error,
+        }
 
 
 def _format_validation_error(exc: ValidationError, path: Path | None) -> str:

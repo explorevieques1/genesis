@@ -4,16 +4,40 @@ tags: [agent, execution, risk]
 family: execution
 cadence: market-open, event
 tier: none
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/agents/execution/accountant.py, tests/execution/test_accountant.py]
 ---
 
 # 🧾 Agent — Position And PnL Accountant
 
+> [!info] Built 2026-09-17
+> `src/genesis/agents/execution/accountant.py`. Read it through
+> `GET /v1/exec/account`, or by hand with `genesis account` /
+> `genesis account --reconcile`.
+>
+> **Two corrections to this note, made in the same commit as the code.**
+>
+> *It is not the ledger's only writer.* The [[Agent — Order Manager]] writes
+> fills, because it is the component holding the broker callback, and two
+> writers racing to record one fill into an append-only ledger is worse than
+> either. What the single-writer rule actually protects is that there is *one*
+> writer, not which one — so this agent is pure derivation and writes nothing
+> to the ledger. That also makes it safe to run read-only from the UI or the
+> command line while the daemon trades.
+>
+> *The two symbol spaces are not the same.* The ledger names a contract
+> `FUT:CME:NQ:2026-12`; the broker reports `NQZ6`. Comparing the spellings
+> directly makes every real position look like a mismatch, and a mismatch is a
+> halt — so broker positions are resolved through the ledger's con-id map
+> first, and an unresolvable one is reported as a position the ledger does not
+> know, which it is.
+
 ## Purpose
 
 The **source of truth** for what you own, what it cost, and what it's worth. Every
-other component asks this one — nothing computes its own idea of a position.
+other component asks this one — nothing computes its own idea of a position. The
+[[Agent — Order Manager]]'s reconciliation pass calls this agent for the position
+comparison rather than keeping a second copy of it.
 
 If this is wrong, [[Pre-Trade Risk Engine]] is making decisions on fiction.
 
@@ -39,6 +63,12 @@ If this is wrong, [[Pre-Trade Risk Engine]] is making decisions on fiction.
 **Portfolio heat is the number that matters most.** Unrealized P&L tells you what
 happened; heat tells you what can still happen. It's what
 [[Pre-Trade Risk Engine]] check #8 uses.
+
+**A position with no stop contributes its whole notional to heat, not zero.**
+The naive reading of "(entry − stop) × size" with no stop is zero risk, which
+is exactly backwards and would make an unprotected book read as the safest
+thing on the page. An unprotected position can go to zero, so that is the
+figure, and the snapshot also lists it under `problems` and suspends auto mode.
 
 ## Output
 
@@ -81,6 +111,12 @@ degraded: false
 
 Every day at 16:15 ET, and on every reconnect, the ledger is compared against the
 broker's own position and cash report.
+
+The comparison is this agent's; the **halt is the order manager's**, and
+deliberately so. A person asking "are we in agreement?" — from the dashboard or
+from `genesis account --reconcile` — must not be able to stop trading by asking,
+so only the component that owns the halt flag engages it. An unreachable broker
+returns `matched: null`, never `true`: unknown is not agreement.
 
 Any mismatch is **`fatal`**:
 1. Emit `reconciliation.failed`

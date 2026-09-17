@@ -2,7 +2,7 @@
 title: Memory Fabric
 tags: [memory, moc, core]
 status: building
-implemented_by: [src/genesis/memory/db.py, src/genesis/memory/episodic.py, src/genesis/memory/ledger.py]
+implemented_by: [src/genesis/memory/db.py, src/genesis/memory/episodic.py, src/genesis/memory/ledger.py, src/genesis/memory/__init__.py, ui/src/views/MemoryFabric.tsx, ui/src/components/graph/ForceGraph.tsx]
 ---
 
 # 🧠 Memory Fabric
@@ -19,8 +19,8 @@ Pattern reference: [[Repo — jarvis]] `src/jarvis/memory/` — `graph.py`, `gra
 |---|---|---|---|
 | [[Working Memory]] | in-memory ring + SQLite | last N turns, current task list, ambient buffer, what's on screen | minutes–hours, rolls off |
 | [[Episodic Log]] | SQLite, append-only | every request, agent run, tool call, decision, outcome | forever; summarised, never deleted |
-| [[Knowledge Graph]] | SQLite / embedded graph | entities + typed edges: tickers, levels, setups, theses, lessons | forever; consolidated nightly |
-| [[Vector Store]] | sqlite-vec / LanceDB | embeddings of ideas, notes, research, chart descriptions, corpus chunks | forever; re-embed on model change |
+| [[Knowledge Graph]] | SQLite / embedded graph | entities + typed edges: tickers, levels, setups, theses, lessons | forever; consolidated nightly — **built**, including merge/weaken/retire ([[Research Canvas]] is a view of it) |
+| [[Vector Store]] | SQLite blobs + numpy cosine | embeddings of ideas, notes, research, chart descriptions | forever; re-embed on model change — **built** 2026-09-17; the corpus half stays [[Repo — Lithium Codebase]]'s |
 | [[Trade Ledger]] | SQLite, append-only, double-entry | orders, fills, positions, P&L, fees | forever; reconciled daily |
 
 Plus the mirror: **[[Obsidian Vault Schema]]** — the human-readable, human-editable

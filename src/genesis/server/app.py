@@ -215,7 +215,26 @@ def build_app(bus: EventBus | None = None) -> Any:
         text = str(body.get("text", "")).strip()
         if not text:
             return JSONResponse({"error": "no text"}, status_code=400)
-        return JSONResponse(await _run(bus, text, heard_via="text"))
+        # A `conversation` key -- even an empty string -- means the caller is
+        # the Ask Genesis panel and wants the exchange saved. An empty value is
+        # a new conversation and the store mints the id; a real id appends to
+        # it. Voice and Cmd-K send no key at all and are not persisted, because
+        # they belong to no conversation.
+        conversation = body.get("conversation")
+        reply = await _run(bus, text, heard_via="text", conversation=conversation)
+        if conversation is not None:
+            try:
+                from genesis.server.conversation_routes import conversation_store
+
+                reply = {
+                    **reply,
+                    "conversation": conversation_store().append(
+                        str(conversation) or None, operator_text=text, reply=reply
+                    ),
+                }
+            except Exception:  # noqa: BLE001 - scrollback is a convenience, never fail the command over it
+                log.exception("could not persist conversation turn")
+        return JSONResponse(reply)
 
     async def utterance(request: Request) -> JSONResponse:
         """Audio in, action out. The tap-to-speak path.
@@ -285,11 +304,74 @@ def build_app(bus: EventBus | None = None) -> Any:
     # Reads live in their own module and are all afferent -- see
     # `reads.py`. Kept separate so the writes in this file stay countable:
     # four routes act, everything else only looks.
+    from genesis.server.automation_routes import automation_routes
     from genesis.server.backtest_routes import backtest_routes
+    from genesis.server.broker_routes import broker_routes
+    from genesis.server.execution_routes import execution_routes
+    from genesis.server.symbol_routes import symbol_routes
+    from genesis.server.canvas_routes import canvas_routes
+    from genesis.server.conversation_routes import conversation_routes
+    from genesis.server.journal_routes import journal_routes
+    from genesis.server.news_routes import news_routes
+    from genesis.server.notebook_routes import notebook_routes
+    from genesis.server.drawing_routes import drawing_routes
+    from genesis.server.range_routes import range_routes
     from genesis.server.reads import read_routes
+    from genesis.server.tool_routes import tool_routes
     from genesis.server.voice_routes import voice_routes
+    from genesis.server.watchlist_routes import watchlist_routes
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app: Any):
+        """Hold the IBKR session open while the server runs, if IBKR is enabled.
+
+        The session lives on its own thread; the bus belongs to this loop, so
+        its events are handed over with `call_soon_threadsafe`.
+        """
+        from genesis.config import LiveConfig, load_config
+        from genesis.marketdata import ibkr_live
+
+        loop = asyncio.get_running_loop()
+        try:
+            ibkr_live.start(
+                load_config(),
+                lambda event, data: loop.call_soon_threadsafe(
+                    lambda: bus.emit(event, data=data, source="ibkr")
+                ),
+            )
+        except Exception:  # noqa: BLE001 - the UI must come up without a broker
+            log.exception("could not start the IBKR live session")
+        # The order path: its own thread and IBKR connection, plus the kill
+        # switch as a separate, detached process so it outlives this one.
+        from genesis.execution import order_manager
+
+        try:
+            config = load_config()
+            if config.execution.enabled:
+                _spawn_killswitch(config.execution.killswitch_port, config.execution.state_dir)
+            order_manager.start(
+                config,
+                lambda event, data: loop.call_soon_threadsafe(
+                    lambda: bus.emit(event, data=data, source="execution")
+                ),
+                # The risk envelope re-reads ~/.genesis/config.yaml per
+                # proposal, so tightening a limit mid-session takes effect on
+                # the next order instead of on the next restart. A broken file
+                # keeps the limits already in force.
+                live_config=LiveConfig(on_error=lambda exc: log.error("config reload refused: %s", exc)),
+            )
+        except Exception:  # noqa: BLE001 - the UI must come up without an order path
+            log.exception("could not start the order manager")
+        try:
+            yield
+        finally:
+            order_manager.stop()
+            ibkr_live.stop()
 
     return Starlette(
+        lifespan=lifespan,
         routes=[
             Route("/v1/snapshot", snapshot),
             Route("/v1/health", health),
@@ -300,9 +382,55 @@ def build_app(bus: EventBus | None = None) -> Any:
             # Backtests act -- they burn CPU and write a durable row -- so they
             # live apart from the reads. They still cannot reach an order path.
             *backtest_routes(bus),
+            # Hand-driven tool calls. Read-only, attributed to `operator`, and
+            # through the same `Gateway.call` the orchestrator uses -- the
+            # symmetry is the point, and it is why this adds no check of its
+            # own. See `60-UI/Terminal.md`.
+            *tool_routes(),
+            # The research canvas. It writes -- membership, position, and edges
+            # asserted by hand -- which is why it is not in `reads.py`. Nothing
+            # it writes can reach an order path; it imports no execution code.
+            *canvas_routes(),
+            # Workflows: versions appended, runs recorded, roster synced on the
+            # daemon's thread. No execution import; steps hold a read-only grant.
+            *automation_routes(),
+            # Saved Ask Genesis conversations: list, read, delete. The turns
+            # are written by `command` above; this only reads them back and
+            # lets the trader throw a thread away.
+            *conversation_routes(),
+            # The notebook and its graph. A vault is a directory of markdown,
+            # so these write real files -- through one door, `Vault.resolve`,
+            # which is where the containment check lives. No order path.
+            *notebook_routes(),
+            # The trader's watchlists: named lists of symbols, in sections,
+            # theirs to edit. Small single-fact writes, no order path, no
+            # execution import -- the conversation-store pattern. The one read
+            # here (`/v1/market/quotes`) is a public tier-3 feed.
+            *watchlist_routes(),
+            *news_routes(),
+            # Run a journal agent by hand, through the daemon's Task Bus.
+            *journal_routes(),
+            # Candle ranges: a named window of price, downloaded once and
+            # kept for study. Writes a scrapbook, not the bar store --
+            # `marketdata.ranges` says why they are separate.
+            *range_routes(),
+            # What the trader drew: boxes, levels, fibs, a position
+            # sketch. The schema's own vocabulary, minus the `why` an
+            # agent owes -- `charting.drawings` says why that differs.
+            *drawing_routes(),
             # Synthesis. The reply text already came back from the command
             # route; this is what makes it audible.
             *voice_routes(bus),
+            # Connect a data provider: IBKR login, gateway container, feed, and
+            # a layered test. Writes files a person could edit by hand; no
+            # order path, and Read-Only API has no off switch here.
+            *broker_routes(),
+            # The chart's symbol bar: IBKR contract search, and loading a
+            # series into the bar store on demand.
+            *symbol_routes(),
+            # The order path: propose, place an approval, manage, flatten.
+            # Efferent; every order passes the risk engine. See the module.
+            *execution_routes(),
         ],
         middleware=[
             # The Vite dev server is a different origin on the same host.
@@ -318,7 +446,34 @@ def build_app(bus: EventBus | None = None) -> Any:
     )
 
 
-async def _run(bus: EventBus, text: str, *, heard_via: str) -> dict[str, Any]:
+def _spawn_killswitch(port: int, state_dir: Any) -> None:
+    """Start the kill switch unless one already answers on its port.
+
+    Detached (its own session), so stopping or wedging the server leaves it
+    running -- Kill Switch §Design constraints 1.
+    """
+    import socket
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    with socket.socket() as s:
+        s.settimeout(0.3)
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            return
+    logs = Path(state_dir)
+    logs.mkdir(parents=True, exist_ok=True)
+    with open(logs / "killswitch.log", "ab") as out:
+        subprocess.Popen(  # noqa: S603 — our own module, fixed argv
+            [sys.executable, "-m", "genesis.execution.killswitch"],
+            stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True,
+        )
+    log.info("kill switch process started on port %s", port)
+
+
+async def _run(
+    bus: EventBus, text: str, *, heard_via: str, conversation: str | None = None
+) -> dict[str, Any]:
     """Dispatch one utterance and narrate it onto the bus.
 
     The events are what make the UI stop being a diagram: `voice.state_changed`
@@ -328,7 +483,17 @@ async def _run(bus: EventBus, text: str, *, heard_via: str) -> dict[str, Any]:
     trace = str(uuid.uuid4())[:8]
     task_id = str(uuid.uuid4())[:12]
     hit = match_command(text)
-    name = hit.command.name if hit else "unmatched"
+    # A screening thread in Ask Genesis keeps the screener on the line: "only
+    # tech" or "loosen the P/E" match nothing in the table, and must edit the
+    # last scan rather than reach the analyst cold. Any other table command
+    # ("chart NVDA") still wins and ends the thread.
+    screen_history = _screen_history(conversation) if not hit or hit.command.name == "screen" else []
+    if hit is None and screen_history:
+        hit = match_command("scr")  # the screen command, for naming and routing only
+    # "analyst", not "unmatched". The table declining is not a failure any
+    # more -- it is the boundary between the fast path and the slow one, and
+    # the trace should say which one ran rather than what did not.
+    name = hit.command.name if hit else "analyst"
 
     # The full lifecycle, in order. `dispatched` is what CREATES the task
     # record and the edge token in the UI store; `started` and `completed`
@@ -350,8 +515,29 @@ async def _run(bus: EventBus, text: str, *, heard_via: str) -> dict[str, Any]:
     started = time.monotonic()
     # Commands do blocking IO -- HTTP, subprocess launch, DuckDB. Off the event
     # loop, or one chart request freezes the socket for every client.
-    result: CommandResult = await loop.run_in_executor(None, dispatch, text)
+    #
+    # An unmatched sentence is NOT an error and must not end here. The
+    # deterministic table is the fast path, not the whole surface: past it sits
+    # the same answer ladder the spoken path uses, and stopping at the table is
+    # what made a microphone a capability (Operating Model §2). The table still
+    # goes first -- "chart NVDA" must never cost a model call.
+    if hit is not None and hit.command.name == "screen":
+        from genesis.screener.chat import respond
+
+        result: CommandResult = await loop.run_in_executor(None, respond, text, screen_history)
+        if result.command == "screen.not_screen":
+            result = await loop.run_in_executor(None, _ask_the_analyst, text)
+    elif hit is not None:
+        result = await loop.run_in_executor(None, dispatch, text)
+    else:
+        result = await loop.run_in_executor(None, _ask_the_analyst, text)
     elapsed = int((time.monotonic() - started) * 1000)
+    if "screen" in (result.data or {}):
+        # A ping, not the rows: the SCR panel re-reads `/v1/screener`, so every
+        # door that ran a scan updates it the same way.
+        bus.emit("screen.updated", data={"command": result.command}, trace=trace)
+    if "watchlist" in (result.data or {}):
+        bus.emit("watchlist.updated", data={"id": result.data["watchlist"]}, trace=trace)
 
     if result.ok:
         bus.emit(
@@ -389,6 +575,46 @@ async def _run(bus: EventBus, text: str, *, heard_via: str) -> dict[str, Any]:
         "ms": elapsed,
         "trace": trace,
     }
+
+
+def _screen_history(conversation: str | None) -> list[tuple[str, dict[str, Any]]]:
+    """The screening exchanges this conversation is in the middle of, if any."""
+    if not conversation:
+        return []
+    try:
+        from genesis.screener.chat import history_from
+        from genesis.server.conversation_routes import conversation_store
+
+        found = conversation_store().get(conversation)
+        return history_from(found["turns"]) if found else []
+    except Exception:  # noqa: BLE001 - lost context is a fresh scan, not a failed command
+        log.exception("could not read screening history")
+        return []
+
+
+def _ask_the_analyst(text: str) -> CommandResult:
+    """Hand a sentence the command table declined to the answer ladder.
+
+    Blocking, and slow the first time -- building the ladder starts the MCP
+    gateway. The task is already on the bus by the time this is called, so the
+    wait shows up in the UI as work in flight rather than as a hang.
+
+    ``command`` carries the rung that answered (``analyst.reasoned``,
+    ``analyst.trivial``, …) rather than a flat label, because that is what
+    tells you afterwards whether a question cost a hosted round trip -- and it
+    is what a test asserts on to prove the typed and spoken paths took the same
+    rung.
+    """
+    from genesis.server.analyst import ANALYST
+
+    rung = ANALYST.answer(text)
+    return CommandResult(
+        rung.reached,
+        f"analyst.{rung.path}",
+        rung.answer.text,
+        None,
+        {"source": rung.answer.source, **{k: str(v) for k, v in rung.fields.items()}},
+    )
 
 
 def _transcribe(raw: bytes) -> str:
@@ -442,6 +668,15 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     applications and read the market data store. There is no deployment story
     where that is wanted, so there is no flag for it.
     """
+    import signal
+    import sys
+
     import uvicorn
 
+    # Uvicorn drains on SIGTERM, then restores the previous handler and
+    # re-raises the signal. With the default handler that kills the process
+    # outright, skipping the caller's fleet shutdown and every atexit hook --
+    # orphaning MCP servers each time the dev watcher restarts us. Exiting
+    # through SystemExit lets `finally` blocks and atexit run.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     uvicorn.run(build_app(), host=host, port=port, log_level="info")

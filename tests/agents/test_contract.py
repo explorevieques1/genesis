@@ -5,7 +5,13 @@ from __future__ import annotations
 
 import pytest
 
-from genesis.agents import AgentDeclaration, AgentState, TaskFailure, TaskResult
+from genesis.agents import (
+    SPINAL_AGENTS,
+    AgentDeclaration,
+    AgentState,
+    TaskFailure,
+    TaskResult,
+)
 from genesis.errors import DegradedError, FatalError, TransientError
 
 from helpers import EchoAgent, echo_declaration
@@ -43,6 +49,22 @@ def test_execution_family_must_be_model_tier_none() -> None:
 
 def test_execution_family_with_tier_none_is_fine() -> None:
     assert echo_declaration(id="order-manager", family="execution").model_tier == "none"
+
+
+@pytest.mark.parametrize("agent_id", sorted(SPINAL_AGENTS))
+def test_named_reflexes_may_not_acquire_a_model(agent_id: str) -> None:
+    """Biological Design §1: a reflex with a model is not a reflex.
+
+    The guard covered the execution family only, so `level-watcher` -- family
+    `charting` -- could have been given a model by an edit with nothing
+    objecting.
+    """
+    with pytest.raises(ValueError, match="Safety Invariants"):
+        echo_declaration(id=agent_id, family="charting", model_tier="small")
+
+
+def test_a_thinking_agent_in_a_thinking_family_is_untouched() -> None:
+    assert echo_declaration(id="market-analyst", family="research", model_tier="large")
 
 
 @pytest.mark.parametrize(

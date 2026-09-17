@@ -7,6 +7,31 @@ implemented_by: [src/genesis/config.py, src/genesis/default_config.yaml, tests/t
 
 # Config And Secrets
 
+## The envelope reloads; everything else does not
+
+**Built 2026-09-17** — `config.LiveConfig`.
+
+Config loads once at start-up, which is right for almost everything: the fleets
+bind their model backends at construction, so a tier change *cannot* take
+effect without a restart and both doors say so rather than showing a control
+that does nothing ([[LLM Model Tiers]]).
+
+The [[Risk Envelope]] is the exception, and it is the one that matters. A limit
+you must restart the daemon to tighten is a limit you will not tighten at 15:40
+in a drawdown — which is exactly when tightening is the point. Hormones are slow
+global state, not a boot argument ([[Biological Design]] §endocrine).
+
+- The [[Agent — Order Manager]] reads the envelope **once per proposal**, from
+  one immutable `Config` object, so a reload between two checks of one decision
+  is impossible.
+- Re-read on `mtime`, on demand. No thread and no `inotify`: a background
+  watcher could swap the envelope underneath a half-evaluated proposal.
+- **A broken file keeps the limits already in force.** Fail closed here means
+  the current envelope stands: a YAML typo must not widen a limit, and must not
+  stop the system either. The error is logged once per change, not per read.
+- A bad config at *boot* still refuses to start. That has not changed.
+
+
 ## Layers
 
 Later layers override earlier ones:

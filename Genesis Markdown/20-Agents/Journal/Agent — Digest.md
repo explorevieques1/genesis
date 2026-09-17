@@ -4,8 +4,8 @@ tags: [agent, journal]
 family: journal
 cadence: cron
 tier: small
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/journal/digest.py, tests/journal/test_agents.py]
 ---
 
 # 📃 Agent — Digest
@@ -18,6 +18,12 @@ Two jobs that turn out to be the same job:
    actually listen to.
 2. **Compress memory** — summarise the day's activity so [[Memory Fabric]] doesn't
    bloat into uselessness.
+
+> [!info] 21:00 is the whole nightly memory pass — 2026-09-17
+> This agent holds the cron, so it triggers all of [[Memory Consolidation]],
+> of which its own `compress()` is pass 6. With no consolidator wired it falls
+> back to compaction alone. `genesis memory consolidate` runs the same object
+> graph by hand.
 
 Both are summarisation with different audiences: one human, one machine.
 
@@ -56,6 +62,15 @@ Structured, under 90 seconds spoken, written to `50-Research/daily/YYYY-MM-DD.md
 
 Note the structure — regime, catalysts, ideas, your book, and **one warning**. Never
 more than one warning; a brief that lists five concerns gets tuned out.
+
+> **Wired 2026-09-14:** the brief reads the last 24h from the research stores —
+> regime from the newest [[Agent — Market Analyst]] `regime` note, catalysts from
+> the newest [[Agent — News And Catalyst]] brief's headlines, ideas from live
+> [[Agent — Idea Synthesizer]] notes by confidence (`DigestAgent.overnight`). A
+> missing store contributes nothing. **Still open:** the sentiment line (no
+> [[Agent — Sentiment]] yet; [[Open Questions]] §19), and 23:00 prep uses the
+> morning format. The job is chosen by the cron's `at` — before this, all four
+> cron times produced a morning brief.
 
 ## The evening recap
 
