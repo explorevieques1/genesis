@@ -60,12 +60,223 @@ def test_the_socket_has_no_write_path():
     #                         writes a durable row, so it is a POST -- but it
     #                         talks to a simulated venue and has no route to a
     #                         broker.
+    #   /v1/mcp/call          one MCP tool, run by hand, through the same
+    #                         `Gateway.call` the orchestrator uses. A POST
+    #                         because it acts and takes real time. It refuses
+    #                         any tool the catalogue marks mutating, and the
+    #                         `operator` allow-list grants no write pattern --
+    #                         two independent reasons it cannot reach an order
+    #                         path, neither of which is this test.
+    #
+    #   /v1/canvas/*          six writes, and they were asked the question
+    #                         above. Each one edits an *arrangement*: canvas
+    #                         membership, a node's position, or an edge in the
+    #                         Knowledge Graph. `canvas_routes.py` imports no
+    #                         execution code, the graph holds no orders, and
+    #                         `assert_edge` can only write an edge kind from
+    #                         Knowledge Graph.md's own list -- none of which
+    #                         names an order, a size or a broker. They are here
+    #                         rather than in `reads.py` precisely so that they
+    #                         stay countable.
+    #
+    #   /v1/conversations/{id}/delete
+    #                         throws away one saved Ask Genesis conversation.
+    #                         `conversation_routes.py` imports no execution
+    #                         code; the store is the trader's own chat
+    #                         scrollback in its own SQLite file, with no order,
+    #                         size or broker anywhere in its schema. The turns
+    #                         are written by `/v1/command` above -- this route
+    #                         only reads them back and deletes.
+    #
+    #   /v1/watchlists/*      six writes, each a single fact about the trader's
+    #                         own symbol lists: make a list, rename it, delete
+    #                         it, add or drop a symbol, move a symbol between
+    #                         sections. `watchlist_routes.py` imports no
+    #                         execution code; `watchlists.db` is the trader's
+    #                         own file with no order, size or broker in its
+    #                         schema -- the conversation-store pattern. A symbol
+    #                         is a string validated by `company.symbols`, never
+    #                         a position.
+    #
+    #   /v1/notebook/*        nine writes, and they write **files**, not rows --
+    #                         a vault is a directory of markdown the trader
+    #                         also opens in Obsidian. Every path passes through
+    #                         `Vault.resolve`, which joins to the vault root,
+    #                         resolves symlinks and refuses anything landing
+    #                         outside it; writes are markdown-only. That single
+    #                         door is why this is nine routes and one check.
+    #                         `notebook_routes.py` imports no execution code,
+    #                         and a note has no order, size or broker in it --
+    #                         it is prose the trader and the research agents
+    #                         both write, through the same routes, which is the
+    #                         parity rule rather than an exception to it.
+    #
+    #   /v1/settings/models/set
+    #                         points one model tier at one backend and model.
+    #                         Deliberately narrow: it writes `llm.<tier>` and
+    #                         refuses every other key, so it is not a path from
+    #                         the browser to the risk limits -- Safety
+    #                         Invariants #9 keeps approval mode off a panel.
+    #                         It cannot reach an order path: `llm/tiers.py`
+    #                         imports config and yaml, and nothing it writes is
+    #                         read by the execution family, which is `tier:
+    #                         none` and has no model in its call path at all.
+    #
+    #   /v1/market/ranges/*   three writes over the trader's candle-range
+    #                         scrapbook: capture a named window of price,
+    #                         rename it, delete it. Capture is a POST because
+    #                         it reaches a vendor and takes real time. It
+    #                         cannot reach an order path: `range_routes.py`
+    #                         imports no execution code, `ranges.db` is the
+    #                         trader's own file holding OHLCV rows and a name,
+    #                         and the fetch is a read of a free public feed --
+    #                         the conversation-store pattern again.
+    #
+    #   /v1/charting/drawings/*
+    #                         three writes over the trader's own chart marks:
+    #                         save one, delete one, clear a series.
+    #                         `drawing_routes.py` imports no execution code and
+    #                         `drawings.db` holds shapes -- a `trade_plan`
+    #                         drawing has entry, stop and targets and no size,
+    #                         no account and no broker, which is the markup
+    #                         schema's own guarantee rather than this test's.
     assert posts == {
         "/v1/command",
         "/v1/voice/utterance",
         "/v1/voice/say",
         "/v1/backtest/run",
+        "/v1/mcp/call",
+        "/v1/canvas/new",
+        "/v1/canvas/{canvas_id}/add",
+        "/v1/canvas/{canvas_id}/remove",
+        "/v1/canvas/{canvas_id}/move",
+        "/v1/canvas/{canvas_id}/unlink",
+        "/v1/settings/models/set",
+        "/v1/canvas/{canvas_id}/link",
+        "/v1/canvas/{canvas_id}/delete",
+        "/v1/conversations/{conversation_id}/delete",
+        "/v1/watchlists/new",
+        "/v1/watchlists/{list_id}/rename",
+        "/v1/watchlists/{list_id}/delete",
+        "/v1/watchlists/{list_id}/add",
+        "/v1/watchlists/{list_id}/remove",
+        "/v1/watchlists/{list_id}/group",
+        "/v1/notebook/save",
+        "/v1/notebook/create",
+        "/v1/notebook/append",
+        "/v1/notebook/folder",
+        "/v1/notebook/rename",
+        "/v1/notebook/delete",
+        "/v1/notebook/vaults/add",
+        "/v1/notebook/vaults/select",
+        "/v1/notebook/vaults/forget",
+        "/v1/market/ranges/new",
+        "/v1/market/ranges/{range_id}/rename",
+        "/v1/market/ranges/{range_id}/delete",
+        "/v1/charting/drawings/save",
+        "/v1/charting/drawings/clear",
+        "/v1/charting/drawings/{drawing_id}/delete",
+        # /v1/automation/workflows/*
+        #                       four writes: save a version, enable/disable,
+        #                       run now, delete (a tombstone version). Each
+        #                       appends to `workflows.db`, which holds step
+        #                       definitions and run records -- no order, size or
+        #                       broker. A step can only call a capability in
+        #                       `automation/grant.py` (read namespaces), and
+        #                       `tests/automation/test_import_graph.py` proves
+        #                       the package loads no execution or risk module.
+        #                       Enable refuses any author but the operator.
+        "/v1/automation/workflows/save",
+        "/v1/automation/workflows/{workflow_id}/enable",
+        "/v1/automation/workflows/{workflow_id}/run",
+        "/v1/automation/workflows/{workflow_id}/delete",
+        # /v1/news/*            three writes: collect headlines now, summarise
+        #                       one article, write a brief. `news_routes.py`
+        #                       imports no execution code; `news.db` holds
+        #                       third-party text and a model's reading of it --
+        #                       no order, size or broker. The summary prompt
+        #                       forbids sizes, stops and targets, and article
+        #                       text is fenced before it meets the model.
+        # /v1/exec/*            THE order path (Phase 7, 2026-09-13), and the
+        #                       one place in this list that reaches a broker.
+        #                       Not an exception to the rule this test guards
+        #                       but its structural form: no route places an
+        #                       order without an approval the risk engine
+        #                       issued (`/propose` -> `/place`), `/submit` does
+        #                       both only in auto-within-limits, and `/mode`,
+        #                       `/resume`, `/adopt` pass by="dashboard". The
+        #                       orchestrator, voice and automation have no
+        #                       route here -- see tests/execution/.
+        # /v1/market/load       fills one series into the bar store from the
+        #                       read-only data connection -- the same fetch
+        #                       `genesis chart` runs. Afferent; places nothing.
+        "/v1/market/load",
+        # /v1/broker/*          connection settings: save the IBKR login to
+        #                       ~/.genesis/.env, start/stop the gateway
+        #                       container, set the feed, test and refresh the
+        #                       connection. They place nothing.
+        "/v1/broker/login",
+        "/v1/broker/feed",
+        "/v1/broker/gateway",
+        "/v1/broker/test",
+        "/v1/broker/refresh",
+        "/v1/exec/propose",
+        "/v1/exec/place",
+        "/v1/exec/submit",
+        "/v1/exec/modify",
+        "/v1/exec/cancel",
+        "/v1/exec/flatten",
+        "/v1/exec/mode",
+        "/v1/exec/resume",
+        "/v1/exec/adopt",
+        # /v1/exec/reconcile    compares the ledger with the broker's positions
+        #                       and records the finding in the ledger's
+        #                       reconciliation table. A POST for that audit row
+        #                       only: it places nothing and cannot halt -- the
+        #                       order manager owns the halt flag, so asking "do
+        #                       we agree?" cannot stop trading.
+        "/v1/exec/reconcile",
+        # /v1/news/econ/refresh pulls the economic calendar into news.db now.
+        #                       Found unenumerated on 2026-09-18; same module
+        #                       and same answer as the three below -- it
+        #                       imports no execution code.
+        "/v1/news/econ/refresh",
+        # /v1/ideas             records one of the trader's own ideas into the
+        #                       research store through `record_idea`, the same
+        #                       function the agent and the CLI call. Text and
+        #                       prices the trader stated; no order, no size.
+        "/v1/ideas",
+        # /v1/plan              builds a plan of action and saves its brief to
+        #                       the vault. Every size in it is the gate's
+        #                       `dry_run`, which mints no approval, and each
+        #                       item's ticket is only data -- acting on it is
+        #                       still /v1/exec/propose then /v1/exec/place.
+        "/v1/plan",
+        "/v1/news/collect",
+        "/v1/news/article/{article_id}/summarise",
+        "/v1/news/brief",
+        # /v1/journal/run       submits a task for one of five named journal
+        #                       agents (`JOURNAL_RUNNABLE`) to the daemon's
+        #                       bus. A fixed allow-list, no execution family,
+        #                       no Trade Journal: nothing it names holds an order.
+        "/v1/journal/run",
+        # /v1/journal/mark      the trader's own hand: a range of candles they
+        #                       selected, as an Observation and -- when they
+        #                       name a trade -- appended to that entry's human
+        #                       half. It cannot reach the frozen machine record
+        #                       (the schema refuses machine fields and a SQLite
+        #                       trigger refuses the write), so it changes no
+        #                       number the Performance Analyst reasons over,
+        #                       and it holds no order.
+        "/v1/journal/mark",
     }
+
+
+def test_the_journal_desk_refuses_anything_off_its_list(client):
+    response = client.post("/v1/journal/run", json={"agent": "execution"})
+    assert response.status_code == 400
+    response = client.post("/v1/journal/run", json={"agent": "trade-journal"})
+    assert response.status_code == 400
 
 
 def test_no_route_reaches_an_order_path():
@@ -77,10 +288,23 @@ def test_no_route_reaches_an_order_path():
     """
     app = build_app(EventBus())
     forbidden = ("order", "trade", "position", "broker", "execute", "place")
+    # Phase 7 (2026-09-13): the order path exists, in exactly one module, and
+    # every placing route spends a risk-engine approval (tests/execution/).
+    # The broker routes are connection settings -- login, gateway, feed -- and
+    # place nothing. Anything else that looks like an order route still fails.
+    efferent = {
+        "/v1/exec/propose", "/v1/exec/place", "/v1/exec/submit", "/v1/exec/modify",
+        "/v1/exec/cancel", "/v1/exec/flatten", "/v1/exec/mode", "/v1/exec/resume",
+        "/v1/exec/adopt",
+        "/v1/broker/login", "/v1/broker/feed", "/v1/broker/gateway", "/v1/broker/test",
+        "/v1/broker/refresh",
+    }
+    paths = {getattr(r, "path", "") for r in app.routes}
+    assert not any("place_order" in p or "placeorder" in p for p in paths)
     for route in app.routes:
         path = getattr(route, "path", "")
         methods = getattr(route, "methods", None) or set()
-        if "POST" not in methods:
+        if "POST" not in methods or path in efferent:
             continue
         assert not any(word in path.lower() for word in forbidden), (
             f"{path} looks like an execution route; Safety Invariants #1 says "
@@ -292,3 +516,29 @@ def test_voice_status_reports_whether_genesis_can_speak(client):
     assert isinstance(body.get("backends"), list)
     if not body["available"]:
         assert body["reason"], "an unavailable voice must say why"
+
+
+def test_a_marked_range_is_journalled_and_refused_when_it_is_nonsense(client, tmp_path, monkeypatch):
+    """The journal's one hand-authored door: a range of candles, and a note."""
+    from genesis.config import load_config
+
+    config = load_config()
+    monkeypatch.setattr(
+        "genesis.config.load_config",
+        lambda *a, **k: config.model_copy(
+            update={"memory": config.memory.model_copy(update={"db_path": tmp_path / "genesis.db"})}
+        ),
+    )
+    mark = {"kind": "idea", "symbol": "NVDA", "timeframe": "1h",
+            "start": 1_700_000_000, "end": 1_700_086_400, "note": "base on the 4h"}
+    response = client.post("/v1/journal/mark", json=mark)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] and body["mark"]["kind"] == "mark.idea"
+
+    listed = client.get("/v1/journal/marks?symbol=NVDA").json()
+    assert [m["id"] for m in listed["marks"]] == [body["mark"]["id"]]
+
+    # A refusal says why: this is a person typing, not an agent.
+    bad = client.post("/v1/journal/mark", json={**mark, "kind": "musing"})
+    assert bad.status_code == 400 and "musing" in bad.json()["reason"]

@@ -16,6 +16,14 @@ Three kinds of drift, all of them silent without this:
 2. **A phantom limb.** `implemented_by:` names a file that does not exist.
 3. **A stale status.** `status: spec` while `implemented_by:` is populated, or
    `status: built`/`building` with nothing behind it.
+5. **A dangling pointer.** Code carries `# Spec:` for a note that does not
+   exist -- a renamed note, a typo, or an organ written before its map. The
+   first four checks walk the vault and never see it.
+4. **A doubled nerve.** Two `implemented_by:` keys in one frontmatter. YAML
+   keeps the last, so the first list silently stops existing. This checker's
+   own first version made fifteen of these on 2026-09-17: it read only the
+   inline `[a, b]` form, saw nothing in a block-form note, and appended a
+   second key. `--fix` merges them into one block list.
 
     python3 scripts/check_body_map.py          # report, exit 1 on drift
     python3 scripts/check_body_map.py --fix    # repair 1 and 3, then report
@@ -76,22 +84,59 @@ def _pointers() -> dict[Path, list[str]]:
                 for target in (t.strip() for t in line.split("·")):
                     if not target.endswith(".md"):
                         continue
-                    note = ROOT / target
-                    if not note.exists():
-                        note = VAULT / target
-                    out[note.resolve()].append(str(path.relative_to(ROOT)))
+                    out[_resolve(target)].append(str(path.relative_to(ROOT)))
     return out
 
 
+def _resolve(target: str) -> Path:
+    """A pointer target, as a note path. Three spellings are in use.
+
+    Repo-relative (``Genesis Markdown/40-Memory/X.md``), vault-relative
+    (``40-Memory/X.md``) and a bare name (``X.md``) -- the last valid because
+    note names are unique (CLAUDE.md, Wikilinks are real files). An
+    unresolvable target is returned as written, repo-relative, so the report
+    names what the code actually says.
+    """
+    for candidate in (ROOT / target, VAULT / target):
+        if candidate.exists():
+            return candidate.resolve()
+    if "/" not in target:
+        found = list(VAULT.rglob(target))
+        if len(found) == 1:
+            return found[0].resolve()
+    base = ROOT / target if target.startswith(VAULT.name + "/") else VAULT / target
+    return base.resolve()
+
+
+KEY = re.compile(r"^implemented_by:", re.MULTILINE)
+
+
 def _impl_list(fm: str) -> list[str]:
-    m = IMPL_INLINE.search(fm)
-    if m:
+    """Every path any ``implemented_by:`` key names, in order, de-duplicated.
+
+    Reads *all* occurrences, not the first: a doubled key is drift to repair,
+    and the repair must not lose the half a parser would have ignored.
+    """
+    out: list[str] = []
+    for m in IMPL_INLINE.finditer(fm):
         inner = m.group(1).strip()[1:-1]
-        return [p.strip().strip("'\"") for p in inner.split(",") if p.strip()]
-    m = IMPL_BLOCK.search(fm)
-    if m:
-        return [ln.strip().lstrip("-").strip().strip("'\"") for ln in m.group(1).splitlines() if ln.strip()]
-    return []
+        out += [p.strip().strip("'\"") for p in inner.split(",") if p.strip()]
+    for m in IMPL_BLOCK.finditer(fm):
+        out += [ln.strip().lstrip("-").strip().strip("'\"") for ln in m.group(1).splitlines() if ln.strip()]
+    return list(dict.fromkeys(out))
+
+
+def _rewrite_impl(fm: str, paths: list[str], *, block: bool) -> str:
+    """Remove every ``implemented_by:`` key and write exactly one back."""
+    for pattern in (IMPL_BLOCK, IMPL_INLINE):
+        fm = pattern.sub("", fm)
+    fm = re.sub(r"^implemented_by:\s*$\n?", "", fm, flags=re.MULTILINE)
+    rendered = (
+        "implemented_by:\n" + "".join(f"  - {p}\n" for p in paths)
+        if block
+        else "implemented_by: [" + ", ".join(paths) + "]\n"
+    )
+    return fm.rstrip("\n") + "\n" + rendered
 
 
 def main() -> int:
@@ -103,6 +148,7 @@ def main() -> int:
     cut: list[tuple[Path, list[str]]] = []
     phantom: list[tuple[Path, list[str]]] = []
     stale: list[tuple[Path, str, int]] = []
+    doubled: list[Path] = []
 
     for note in sorted(VAULT.rglob("*.md")):
         text = note.read_text(encoding="utf-8")
@@ -130,23 +176,18 @@ def main() -> int:
             elif status in ("building", "built") and not has_code:
                 stale.append((note, status, 0))
 
-        if args.fix and (missing or (status == "spec" and (declared or missing))):
-            new_impl = declared + missing
-            body = text
-            impl_m = IMPL_INLINE.search(body[: m.end()]) or IMPL_BLOCK.search(body[: m.end()])
-            block = impl_m is not None and impl_m.re is IMPL_BLOCK
-            rendered = (
-                "implemented_by:\n" + "".join(f"  - {p}\n" for p in new_impl)
-                if block
-                else "implemented_by: [" + ", ".join(new_impl) + "]"
-            )
-            if impl_m:
-                body = body[: impl_m.start()] + rendered + body[impl_m.end() :]
-            else:
-                body = body[: m.end() - 4] + rendered + "\n" + body[m.end() - 4 :]
+        keys = len(KEY.findall(fm))
+        if keys > 1:
+            doubled.append(note)
+
+        needs = missing or keys > 1 or (status == "spec" and (declared or missing))
+        if args.fix and needs:
+            new_impl = list(dict.fromkeys(declared + missing))
+            block = bool(IMPL_BLOCK.search(fm)) or not IMPL_INLINE.search(fm) and len(new_impl) > 3
+            new_fm = _rewrite_impl(fm, new_impl, block=block)
             if status == "spec" and new_impl:
-                body = STATUS.sub("status: building", body, count=1)
-            note.write_text(body, encoding="utf-8")
+                new_fm = STATUS.sub("status: building", new_fm, count=1)
+            note.write_text("---\n" + new_fm + "---\n" + text[m.end():], encoding="utf-8")
 
     def rel(p: Path) -> str:
         return str(p.relative_to(ROOT))
@@ -169,7 +210,22 @@ def main() -> int:
             why = f"{n} file(s) behind it" if n else "nothing behind it"
             print(f"  {rel(note)}  status: {status} — {why}")
 
-    drift = len(cut) + len(phantom) + len(stale)
+    dangling = sorted(
+        (note, files) for note, files in pointers.items() if not note.exists()
+    )
+    if dangling:
+        print(f"\n🧷 dangling pointer — code names a note that does not exist ({len(dangling)})")
+        for note, files in dangling:
+            print(f"  {note.relative_to(ROOT) if note.is_relative_to(ROOT) else note}")
+            for f in files:
+                print(f"      ← {f}")
+
+    if doubled:
+        print(f"\n🪢 doubled nerve — two implemented_by keys; YAML keeps only the last ({len(doubled)})")
+        for note in doubled:
+            print(f"  {rel(note)}")
+
+    drift = len(cut) + len(phantom) + len(stale) + len(doubled) + len(dangling)
     if not drift:
         print(f"✅ body map is honest — {len(pointers)} notes have code pointing at them")
         return 0

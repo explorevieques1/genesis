@@ -262,6 +262,16 @@ class OrderManager:
     def propose(self, ticket: dict[str, Any]) -> dict[str, Any]:
         return self.call(self._propose_ticket, ticket)
 
+    def dry_run(self, ticket: dict[str, Any]) -> dict[str, Any]:
+        """What the gate would decide about this ticket. No approval, no order.
+
+        The plan of action sizes ideas through *this*, so there is one sizing
+        implementation in the system -- the gate's -- rather than a second one
+        that agrees with it until the day it does not. Afferent: it mints no
+        approval token, records nothing, and cannot place.
+        """
+        return self.call(self._dry_run, ticket)
+
     def place(self, approval_id: str, confirmation: dict[str, Any] | None) -> dict[str, Any]:
         return self.call(self._place, approval_id, confirmation, "dashboard")
 
@@ -342,6 +352,36 @@ class OrderManager:
         except Exception as exc:  # noqa: BLE001
             raise Refused(f"IBKR could not resolve {symbol_id}: {exc}") from exc
         return self._propose(self._ticket_proposal(t, info, self.broker.quote(info)), info)
+
+    def _dry_run(self, t: dict[str, Any]) -> dict[str, Any]:
+        """Evaluate as if the session were open and nothing were halted.
+
+        A plan is usually made before the open, and a gate that stops at
+        "not trading now" says nothing about *how much* it would allow once it
+        is. So the session, the halt and the mode are lifted for the sizing and
+        reported beside it as they are right now -- the plan shows both, and
+        never presents the lifted answer as the current one.
+        """
+        symbol_id = str(t.get("symbol_id") or "")
+        if not symbol_id:
+            raise Refused("symbol_id is required")
+        try:
+            info = self.broker.qualify(symbol_id)
+        except Exception as exc:  # noqa: BLE001
+            raise Refused(f"IBKR could not resolve {symbol_id}: {exc}") from exc
+        quote = self.broker.quote(info)
+        p = self._ticket_proposal(t, info, quote)
+        ctx = self._context(p, info)
+        now = {"in_session": ctx.in_session, "halted": ctx.halted, "mode": ctx.mode}
+        decision = evaluate(
+            p, replace(ctx, in_session=True, halted=False, mode="confirm", recent={}),
+            now=self.clock(),
+        )
+        return {
+            "decision": decision.to_dict(), "now": now, "local_symbol": info.local_symbol,
+            "multiplier": str(info.multiplier), "mark": _s(quote.get("mid")),
+            "quote_source": quote.get("source"), "quote_ts": quote.get("ts"),
+        }
 
     def _context(self, p: Proposal, info: ContractInfo) -> RiskContext:
         risk = self.envelope()

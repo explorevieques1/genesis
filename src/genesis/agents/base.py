@@ -125,6 +125,7 @@ SPINAL_AGENTS = {
     "position-accountant": "position and P&L arithmetic",
     "news-collector": "gathers and stores; it never reads meaning",
     "watchdog": "health thresholds",
+    "session-plan": "assembly of stored ideas and the gate's own sizing",
 }
 
 

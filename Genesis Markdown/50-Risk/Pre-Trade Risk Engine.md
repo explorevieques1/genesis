@@ -158,6 +158,13 @@ max position % (futures are capped in contracts), correlated exposure,
 liquidity vs ADV, event window (the [[Economic Calendar]] feed exists; the
 check does not).
 
+**The dry run** (`OrderManager.dry_run`, 2026-09-18) evaluates a ticket exactly as
+`propose` would — same context, same checks — and mints no approval, records
+nothing, and cannot place. It lifts the session, the halt and the mode for the
+sizing and returns them as they are now, beside the answer. It exists so
+[[Agent — Session Plan]] can size ideas through *this* engine rather than keep a
+second copy of the rules.
+
 **Stop offsets are in points.** Worst case is then exact on a delayed quote.
 A stop is mandatory for any order that opens risk.
 

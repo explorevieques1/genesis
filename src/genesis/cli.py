@@ -259,6 +259,36 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     acct.add_argument("--json", action="store_true", help="print the snapshot as JSON")
 
+    sub.add_parser("biology", help="the organ map: each organ and the build status of its notes")
+
+    idea = sub.add_parser("idea", help="your trade ideas: record one, list the desk")
+    idea_sub = idea.add_subparsers(dest="idea_command", required=True)
+    add = idea_sub.add_parser(
+        "add", help="record an idea — no invalidation, no idea",
+    )
+    add.add_argument("symbol", help="a root on the allow-list (NQ) or a contract (FUT:CME:NQ:2026-12)")
+    add.add_argument("direction", choices=["long", "short"])
+    add.add_argument("--thesis", required=True, help="why, in your own words")
+    add.add_argument("--entry", metavar="LOW-HIGH", help="the entry zone, e.g. 20000-20050")
+    add.add_argument("--stop", type=float, metavar="PRICE",
+                     help="where it's wrong, as a price — without it nothing can be sized")
+    add.add_argument("--target", type=float, action="append", default=[], metavar="PRICE")
+    add.add_argument("--wrong-if", metavar="CONDITION",
+                     help="where it's wrong as a condition, if not (only) a price")
+    add.add_argument("--why", metavar="TEXT", help="why that voids the idea")
+    add.add_argument("--setup", default="")
+    add.add_argument("--timeframe", choices=["scalp", "intraday", "swing", "position"], default="swing")
+    add.add_argument("--horizon", type=int, default=5, metavar="DAYS")
+    add.add_argument("--confidence", type=float, default=0.5)
+    idea_sub.add_parser("list", help="the live ideas on the desk, yours and the synthesizer's")
+
+    plan = sub.add_parser(
+        "plan", help="a plan of action from the ideas on the desk — ranked, sized by the gate",
+    )
+    plan.add_argument("--no-save", action="store_true", help="show it without writing the brief")
+    plan.add_argument("--json", action="store_true")
+    plan.add_argument("--port", type=int, default=8765, help="the running server (default 8765)")
+
     mem = sub.add_parser("memory", help="the memory fabric: recall, consolidation, embeddings")
     mem_sub = mem.add_subparsers(dest="memory_command", required=True)
     mem_sub.add_parser("stats", help="what each layer holds")
@@ -545,8 +575,15 @@ def _build_research_fleet(config: Config, console: Console, gateway, journal=Non
         planner_backend=_tier_backend(config, console, "small"),
         vault=str(config.memory.vault_path),
         db_path=str(config.memory.db_path.parent / "research.db"),
+        plan_inputs=_plan_inputs(config),
         console=console,
     )
+
+
+def _plan_inputs(config: Config):  # noqa: ANN202
+    from genesis.agents.research.session_plan import default_inputs
+
+    return default_inputs(config)
 
 
 def _build_journal_fleet(config: Config, console: Console, gateway, daemon=None):  # noqa: ANN001
@@ -1609,6 +1646,21 @@ def _cmd_config_usage(config: Config, console: Console) -> int:
     return EXIT_OK
 
 
+def _cmd_biology(console: Console) -> int:
+    """The BIO module's parity twin: the same `organs()` the route serves."""
+    from genesis.biology import organs
+
+    mark = {"built": "●", "building": "◐", "spec": "○", "missing": "✕", "n/a": "·"}
+    console.line("🧬", "Genesis — organ map, from Biological Design")
+    with console.nest():
+        for o in organs():
+            console.line(mark[o["status"]], f"{o['organ']} — {o['genesis']}")
+            with console.nest():
+                for p in o["parts"]:
+                    console.line(mark[p["status"]], f"{p['name']} ({p['status']})")
+    return 0
+
+
 def _cmd_account(config: Config, console: Console, *, reconcile: bool, as_json: bool) -> int:
     """The accountant, through the same door the dashboard uses.
 
@@ -1679,6 +1731,99 @@ def _cmd_account(config: Config, console: Console, *, reconcile: bool, as_json: 
             console.warn(problem)
         if snap.reconciled is False:
             console.error("the ledger and the broker do not agree")
+    return EXIT_OK
+
+
+def _cmd_idea(config: Config, console: Console, args: Any) -> int:
+    """Your ideas, through the same function the agent and the route call."""
+    from genesis.agents.research.session_plan import live_ideas, record_idea
+    from genesis.errors import GenesisError
+    from genesis.research.store import ResearchStore
+
+    store = ResearchStore(path=config.memory.db_path.parent / "research.db",
+                          vault=str(config.memory.vault_path))
+    if args.idea_command == "list":
+        rows = live_ideas(store)
+        if not rows:
+            console.line("\N{ELECTRIC LIGHT BULB}", "no live ideas on the desk")
+            return EXIT_OK
+        console.line("\N{ELECTRIC LIGHT BULB}", f"{len(rows)} live idea(s)")
+        with console.nest():
+            for _, i in rows:
+                zone = f" {i.entry_zone[0]:g}–{i.entry_zone[1]:g}" if i.entry_zone else ""
+                stop = f" wrong {i.stop_price:g}" if i.stop_price is not None else " NO STOP PRICE"
+                who = "yours" if i.author == "human" else i.author
+                console.line("\N{BULLET}", f"{i.direction} {i.symbol}{zone}{stop} · {who}")
+        return EXIT_OK
+
+    payload: dict[str, Any] = {
+        "symbol": args.symbol, "direction": args.direction, "thesis": args.thesis,
+        "stop_price": args.stop, "targets": args.target, "setup": args.setup,
+        "timeframe": args.timeframe, "horizon_days": args.horizon, "confidence": args.confidence,
+    }
+    if args.entry:
+        payload["entry_zone"] = args.entry
+    if args.wrong_if:
+        payload["invalidation"] = args.wrong_if
+    if args.why:
+        payload["invalidation_reason"] = args.why
+    try:
+        note = record_idea(store, payload)
+    except GenesisError as exc:
+        console.error(exc.reason)
+        return EXIT_CONFIG_ERROR
+    console.ok(f"Recorded: {note.summary}")
+    if args.stop is None:
+        console.warn("no --stop price: the plan will list this idea but cannot size it")
+    return EXIT_OK
+
+
+def _cmd_plan(config: Config, console: Console, *, save: bool, as_json: bool, port: int,
+              config_path: Path | None = None) -> int:
+    """The plan, through the running server when there is one.
+
+    Only the server process holds the order manager, and the order manager is
+    what sizes -- so a plan built in this process could not size anything.
+    The same route the UI calls is the door; building locally is the fallback,
+    and it says why its sizes are missing rather than showing none.
+    """
+    import json
+
+    import httpx
+
+    url = f"http://127.0.0.1:{port}/v1/plan"
+    body: dict[str, Any] | None = None
+    try:
+        r = (httpx.post(url, json={}, timeout=60) if save else httpx.get(url, timeout=60))
+        r.raise_for_status()
+        body = r.json()
+    except httpx.HTTPError:
+        body = None
+
+    if body is None:
+        from genesis.agents.research.session_plan import SessionPlanAgent, default_inputs
+        from genesis.research.store import ResearchStore
+
+        inputs = default_inputs(config, config_path=config_path)
+        inputs.size = lambda: None
+        inputs.account = lambda: None
+        inputs.size_off = (f"the server is not running on :{port}, so the gate could not "
+                           f"size anything — `./genesis up`, then run this again")
+        agent = SessionPlanAgent(
+            ResearchStore(path=config.memory.db_path.parent / "research.db",
+                          vault=str(config.memory.vault_path)),
+            inputs=inputs,
+        )
+        plan, note = agent.build(save=save)
+        body = {**plan.to_dict(), "brief": plan.brief(), "spoken": plan.spoken(),
+                "vault_path": note.vault_path() if note else None}
+
+    if as_json:
+        print(json.dumps(body, indent=2, default=str))
+        return EXIT_OK
+    print(body["brief"])
+    if body.get("vault_path"):
+        console.ok(f"saved to {body['vault_path']}")
     return EXIT_OK
 
 
@@ -1972,8 +2117,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "account":
         return _cmd_account(config, console, reconcile=args.reconcile, as_json=args.json)
 
+    if args.command == "biology":
+        return _cmd_biology(console)
+
     if args.command == "memory":
         return _cmd_memory(config, console, args)
+
+    if args.command == "idea":
+        return _cmd_idea(config, console, args)
+
+    if args.command == "plan":
+        return _cmd_plan(config, console, save=not args.no_save, as_json=args.json, port=args.port,
+                         config_path=args.config)
 
     if args.command == "config":
         if args.config_command == "check":

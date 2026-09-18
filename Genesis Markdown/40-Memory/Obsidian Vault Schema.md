@@ -1,8 +1,8 @@
 ---
 title: Obsidian Vault Schema
 tags: [memory, schema]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/research/store.py]
 ---
 
 # Obsidian Vault Schema
@@ -19,7 +19,8 @@ Location decision: [[Open Questions]] §5 — a dedicated vault is recommended.
 GenesisVault/
 ├── 00-Inbox/                  # raw capture, unprocessed — your quick notes
 ├── 10-Ideas/
-│   └── YYYY/MM/               # one note per trade idea
+│   ├── YYYY/MM/               # one note per trade idea
+│   └── plans/                 # one note per plan of action — [[Agent — Session Plan]]
 ├── 20-Charts/                 # rendered PNGs + spec references
 ├── 30-Journal/
 │   └── YYYY/MM/               # one note per trade

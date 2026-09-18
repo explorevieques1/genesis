@@ -308,6 +308,7 @@ def build_app(bus: EventBus | None = None) -> Any:
     from genesis.server.backtest_routes import backtest_routes
     from genesis.server.broker_routes import broker_routes
     from genesis.server.execution_routes import execution_routes
+    from genesis.server.plan_routes import plan_routes
     from genesis.server.symbol_routes import symbol_routes
     from genesis.server.canvas_routes import canvas_routes
     from genesis.server.conversation_routes import conversation_routes
@@ -431,6 +432,7 @@ def build_app(bus: EventBus | None = None) -> Any:
             # The order path: propose, place an approval, manage, flatten.
             # Efferent; every order passes the risk engine. See the module.
             *execution_routes(),
+            *plan_routes(),
         ],
         middleware=[
             # The Vite dev server is a different origin on the same host.

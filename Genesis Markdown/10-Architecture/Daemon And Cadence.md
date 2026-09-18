@@ -2,7 +2,7 @@
 title: Daemon And Cadence
 tags: [architecture, core]
 status: building
-implemented_by: [src/genesis/daemon/daemon.py, src/genesis/daemon/calendar.py, src/genesis/daemon/scheduler.py, src/genesis/daemon/supervisor.py, tests/daemon/]
+implemented_by: [src/genesis/daemon/daemon.py, src/genesis/daemon/calendar.py, src/genesis/daemon/scheduler.py, src/genesis/daemon/supervisor.py, tests/daemon/, src/genesis/daemon/__init__.py, tests/daemon/test_calendar.py, tests/daemon/test_daemon.py, tests/daemon/test_scheduler.py, tests/daemon/test_supervisor.py]
 ---
 
 # Daemon And Cadence
@@ -30,8 +30,25 @@ while True:
         summarise_into_episodic()
 
     watchdog.heartbeat_all()
-    sleep(TICK)                         # ~1s
+    wait(TICK, or until a task is submitted)   # ~1s fallback
 ```
+
+### Worker pools
+
+`drain_task_bus()` above is the **critical pool** only — `execution`, `risk`,
+`user`. The background lanes (`event`, `research`, `maintenance`) drain on their
+own thread, so a typed request never waits for a research pass that is already
+running ([[Task Bus]]: *separate worker pools, not just ordering*).
+
+- **Wake on submit.** An in-process submit wakes the loop at once; the tick is
+  the fallback for cadences, retry backoff, and submits from another process.
+- **One task per agent at a time**, across both pools. A user task for the
+  screener waits for the screener's own scan — never for anyone else's.
+- **A held claim is renewed** every TTL/3 while its task runs. The TTL recovers
+  a *dead* holder; without renewal the other pool's `claim` would requeue a
+  live 45-second research pass mid-run.
+- A bare `tick()` (tests, no `run_forever`) still drains both pools itself,
+  critical first.
 
 ## Session states
 
@@ -61,6 +78,14 @@ futures or crypto, this table is per-venue, not global.
 
 Agents declare their cadence in [[Agent Contract]]. One agent may have several
 (e.g. [[Agent — Idea Synthesizer]] is `market-open:15m` + `cron:premarket` + `event:news.spike`).
+
+## On-demand only
+
+Never scheduled; run when the [[Orchestrator]] dispatches or a person asks.
+
+| Agent | Why not scheduled |
+|---|---|
+| [[Agent — Session Plan]] | a plan nobody asked for is the canvas filling itself ([[Operating Model]] §2) |
 
 ## Market-open roster
 
@@ -126,6 +151,10 @@ the ledger against the broker **before** enabling any order path, expire all pen
 order confirmations, then resume cadence.
 
 Boot announces itself: "Genesis online. Market closed. Ledger reconciled. Four agents idle."
+
+A cron that already fired today does not fire again after a restart. Run history
+is in memory, so each cron dispatch writes `at` and `fired_on` into its task
+args, and `Daemon.register` seeds the scheduler from the bus.
 
 ## Acceptance criteria
 

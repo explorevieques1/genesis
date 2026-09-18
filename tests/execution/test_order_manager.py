@@ -343,3 +343,25 @@ def test_heat_with_room_passes_through_the_real_path(tmp_path):
     heat = [c for c in proposed["decision"]["checks"] if c["id"] == "portfolio_heat"]
     assert heat and heat[0]["result"] == "pass", proposed["decision"]["checks"]
     assert "4.00%" in heat[0]["detail"]  # $400 of $10,000
+
+
+def test_a_dry_run_sizes_without_minting_an_approval(tmp_path):
+    """The plan's sizing path: the gate's answer, and nothing that could place."""
+    m, b = manager(tmp_path, SmallAccount())
+    out = m.dry_run(ticket(qty=2))
+    assert out["decision"]["decision"] in ("approve", "resize")
+    assert out["decision"]["approved_qty"] == 1, "$600 of heat fits one $400 contract"
+    assert out["decision"]["binding_check"] == "portfolio_heat"
+    assert m.book._issued == {}, "no approval token was minted"
+    assert b.placed == []
+
+
+def test_a_dry_run_reports_the_session_as_it_is_now(tmp_path, monkeypatch):
+    """Sized as if open; the closed market is reported beside it, never hidden."""
+    import genesis.execution.order_manager as om
+
+    m, _ = manager(tmp_path)
+    monkeypatch.setattr(om, "in_session", lambda *a, **k: False)
+    out = m.dry_run(ticket())
+    assert out["now"]["in_session"] is False
+    assert out["decision"]["decision"] == "approve", "sized as if the session were open"

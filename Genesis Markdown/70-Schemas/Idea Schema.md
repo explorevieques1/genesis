@@ -15,6 +15,23 @@ The central object. Produced by [[Agent — Idea Synthesizer]], written to the v
 **No invalidation, no idea.** An idea whose author cannot state what would prove it
 wrong is not an idea — it's a hope. This is enforced, not encouraged.
 
+> [!info] What the code carries today — `src/genesis/research/schema.py`, 2026-09-18
+> A subset of the shape below, and two things it adds:
+>
+> - **`invalidation` is text** (the condition, stated so a person could check it),
+>   and **`stop_price` is the number**. Either records an idea; only the number
+>   sizes one — the gate measures risk from entry to stop. A long's `stop_price`
+>   must be below its `entry_zone` and a short's above, refused at construction.
+> - **`author`** — `human` for the trader's own ideas ([[Agent — Session Plan]]),
+>   the agent id for the synthesizer's. One store, one shape, one ranking. The
+>   trader's ideas are stored under subject `<symbol>-<direction>`, so restating one
+>   updates it and never supersedes the synthesizer's.
+> - **`rr` is computed, never stated** — first target against the stop, from the
+>   middle of the entry zone — so it cannot disagree with the prices it is made of.
+>
+> Not carried yet: `suggested_risk_pct` (sizing is the gate's), `evidence` weights,
+> `counter_evidence`.
+
 ## Schema
 
 ```yaml
