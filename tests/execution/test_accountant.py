@@ -42,6 +42,24 @@ class Broker:
         self.qty = qty
         self.equity = D(equity)
         self.up = True
+        #: The live order book, in the broker's own view shape.
+        self.orders: list[dict] = []
+
+    def open_orders(self) -> list[dict]:
+        return list(self.orders)
+
+    def info_for_con(self, con_id: int):
+        class Info:
+            multiplier = D(20)
+        return Info() if con_id == 555 else None
+
+    def stop(self, price: str, *, qty: int = 2, side: str = "sell", working: bool = True,
+             parent_id: int = 0, order_id: int = 900) -> None:
+        self.orders.append({"ref": f"stop_{order_id}", "order_id": order_id, "con_id": 555,
+                            "local_symbol": "NQZ6", "side": side, "qty": qty,
+                            "remaining": float(qty), "type": "stop", "stop": D(price),
+                            "limit": None, "trail": None, "parent_id": parent_id,
+                            "working": working})
 
     def connected(self) -> bool:
         return self.up
@@ -110,8 +128,9 @@ def test_fees_land_in_realized_pnl(ledger: TradeLedger) -> None:
 
 def test_heat_is_entry_to_stop_times_size(ledger: TradeLedger) -> None:
     ledger.record_fill(fill())
-    _stop(ledger, "19950.00")
-    snap = Accountant(ledger=ledger, broker=Broker(), quote=quoter("20000"),
+    broker = Broker()
+    broker.stop("19950.00")
+    snap = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
                       clock=lambda: NOW).snapshot()
     # (20000 - 19950) x 2 x 20 = 2000 on 100k equity
     assert snap.positions[0].risk_open == D("2000")
@@ -130,22 +149,74 @@ def test_an_unprotected_position_is_the_riskiest_thing_on_the_page(ledger: Trade
     assert not snap.auto_mode_permitted
 
 
-def test_a_filled_stop_no_longer_protects(ledger: TradeLedger) -> None:
+def test_a_stop_that_is_no_longer_working_does_not_protect(ledger: TradeLedger) -> None:
     ledger.record_fill(fill())
-    _stop(ledger, "19950.00", state="filled")
-    snap = Accountant(ledger=ledger, broker=Broker(), quote=quoter("20000"),
+    broker = Broker()
+    broker.stop("19950.00", working=False)
+    snap = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
                       clock=lambda: NOW).snapshot()
     assert not snap.positions[0].protected
 
 
+def test_a_cancelled_stop_in_the_ledger_does_not_protect_offline(ledger: TradeLedger) -> None:
+    """`orders.state` is the state an order was born in; the event log is the truth.
+
+    Reading the born state counted a cancelled stop as live, which understates
+    risk -- the wrong direction for the number the risk engine sizes against.
+    """
+    ledger.record_fill(fill())
+    _stop(ledger, "19950.00")
+    ledger.record_order_event("DU123", "gen_stop", "cancelled", "2026-09-17T18:07:00+00:00")
+    snap = Accountant(ledger=ledger, broker=None, quote=quoter("20000"),
+                      clock=lambda: NOW).snapshot()
+    assert not snap.positions[0].protected
+
+
+def test_a_live_stop_in_the_ledger_protects_offline_and_says_so(ledger: TradeLedger) -> None:
+    ledger.record_fill(fill())
+    _stop(ledger, "19950.00")
+    snap = Accountant(ledger=ledger, broker=None, quote=quoter("20000"),
+                      clock=lambda: NOW).snapshot()
+    assert snap.positions[0].protected
+    assert any("from the ledger" in r for r in snap.degraded_reasons)
+
+
+def test_a_trailed_stop_is_measured_at_its_live_price(ledger: TradeLedger) -> None:
+    """The ledger keeps the price a stop was placed at; the broker has where it is now."""
+    ledger.record_fill(fill())
+    _stop(ledger, "19900.00")           # placed here
+    broker = Broker()
+    broker.stop("19990.00")             # trailed up to here
+    snap = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
+                      clock=lambda: NOW).snapshot()
+    assert snap.positions[0].risk_open == (D("20000") - D("19990")) * 2 * 20
+
+
+def test_a_stop_covering_half_the_position_leaves_half_unprotected(ledger: TradeLedger) -> None:
+    ledger.record_fill(fill())          # 2 contracts
+    broker = Broker()
+    broker.stop("19950.00", qty=1)
+    pos = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
+                     clock=lambda: NOW).snapshot().positions[0]
+    assert pos.covered == 1 and not pos.protected
+    # 1 contract to its stop, 1 contract to zero
+    assert pos.risk_open == D(50) * 1 * 20 + D(20000) * 1 * 20
+
+
+def test_a_buy_stop_does_not_protect_a_long(ledger: TradeLedger) -> None:
+    ledger.record_fill(fill())
+    broker = Broker()
+    broker.stop("20100.00", side="buy")
+    pos = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
+                     clock=lambda: NOW).snapshot().positions[0]
+    assert not pos.protected
+
+
 def test_a_short_positions_stop_is_above_it(ledger: TradeLedger) -> None:
     ledger.record_fill(fill(side="sell"))
-    ledger.record_order({
-        "account_id": "DU123", "client_order_id": "gen_stop", "approval_id": "appr_1",
-        "symbol": "NQZ6", "side": "buy", "qty": 2, "order_type": "stop", "state": "submitted",
-        "trace_id": "tr_1", "role": "stop", "stop_price": "20050.00", "con_id": 555, "ts": "2026-09-17T18:06:00+00:00",
-    })
-    snap = Accountant(ledger=ledger, broker=Broker(qty=-2), quote=quoter("20000"),
+    broker = Broker(qty=-2)
+    broker.stop("20050.00", side="buy")
+    snap = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
                       clock=lambda: NOW).snapshot()
     pos = snap.positions[0]
     assert pos.side == "short"
@@ -159,8 +230,9 @@ def test_a_short_positions_stop_is_above_it(ledger: TradeLedger) -> None:
 
 def test_a_stale_mark_degrades_the_snapshot_and_suspends_auto(ledger: TradeLedger) -> None:
     ledger.record_fill(fill())
-    _stop(ledger, "19950.00")
-    snap = Accountant(ledger=ledger, broker=Broker(), clock=lambda: NOW,
+    broker = Broker()
+    broker.stop("19950.00")
+    snap = Accountant(ledger=ledger, broker=broker, clock=lambda: NOW,
                       quote=quoter("20000", age_sec=900, source="delayed")).snapshot()
     assert snap.degraded
     assert any("900000 ms old" in r for r in snap.degraded_reasons)
@@ -236,8 +308,9 @@ def test_cache_drift_is_reported_not_used(ledger: TradeLedger) -> None:
 
 def test_the_snapshot_serialises_without_floats(ledger: TradeLedger) -> None:
     ledger.record_fill(fill())
-    _stop(ledger, "19950.00")
-    body = Accountant(ledger=ledger, broker=Broker(), quote=quoter("20000"),
+    broker = Broker()
+    broker.stop("19950.00")
+    body = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
                       clock=lambda: NOW).snapshot().to_dict()
     import json
 
@@ -288,3 +361,81 @@ def test_a_broker_position_the_ledger_never_saw_is_a_mismatch(ledger: TradeLedge
     result = Accountant(ledger=ledger, broker=Broker(qty=2), clock=lambda: NOW).reconcile()
     assert result["matched"] is False
     assert "NQZ6" in result["detail"]
+
+
+# --------------------------------------------------------------------------
+# pending risk -- entries not yet filled
+# --------------------------------------------------------------------------
+
+
+def _entry(ledger: TradeLedger, broker: Broker, *, limit: str | None = "20000", order_id: int = 700,
+           qty: int = 1, with_stop: str | None = "19960") -> None:
+    ref = f"gen_entry_{order_id}"
+    ledger.record_order({
+        "account_id": "DU123", "client_order_id": ref, "approval_id": "appr_1",
+        "symbol": "FUT:CME:NQ:2026-12", "side": "buy", "qty": qty, "order_type": "limit",
+        "state": "accepted", "trace_id": "tr_1", "role": "entry", "con_id": 555,
+        "ts": "2026-09-17T18:05:00+00:00",
+    })
+    broker.orders.append({"ref": ref, "order_id": order_id, "con_id": 555, "local_symbol": "NQZ6",
+                          "side": "buy", "qty": qty, "remaining": float(qty), "type": "limit",
+                          "limit": None if limit is None else D(limit), "stop": None, "trail": None,
+                          "parent_id": 0, "working": True})
+    if with_stop is not None:
+        broker.stop(with_stop, qty=qty, parent_id=order_id, order_id=order_id + 1)
+
+
+def test_a_working_entry_counts_before_it_fills(ledger: TradeLedger) -> None:
+    """Two quick entries must not both pass heat before either fills."""
+    broker = Broker(qty=0)
+    _entry(ledger, broker)
+    snap = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
+                      clock=lambda: NOW).snapshot()
+    assert snap.pending_risk == D(40) * 1 * 20
+    assert snap.open_risk == D(800)
+    assert snap.portfolio_heat_pct == D("0.8")
+
+
+def test_a_working_entry_with_no_stop_makes_risk_unknown(ledger: TradeLedger) -> None:
+    broker = Broker(qty=0)
+    _entry(ledger, broker, with_stop=None)
+    snap = Accountant(ledger=ledger, broker=broker, quote=quoter("20000"),
+                      clock=lambda: NOW).snapshot()
+    assert snap.pending_risk is None
+    assert snap.open_risk is None, "unknown is never zero"
+    assert snap.portfolio_heat_pct is None
+    assert not snap.auto_mode_permitted
+
+
+def test_a_market_entry_is_measured_from_the_mark(ledger: TradeLedger) -> None:
+    broker = Broker(qty=0)
+    _entry(ledger, broker, limit=None, with_stop="19950")
+    snap = Accountant(ledger=ledger, broker=broker, quote=quoter("20010"),
+                      clock=lambda: NOW).snapshot()
+    assert snap.pending_risk == D(60) * 1 * 20
+
+
+def test_an_unreadable_order_book_makes_pending_risk_unknown(ledger: TradeLedger) -> None:
+    class Broken(Broker):
+        def open_orders(self) -> list[dict]:
+            raise RuntimeError("gateway gone")
+
+    snap = Accountant(ledger=ledger, broker=Broken(qty=0), clock=lambda: NOW).snapshot()
+    assert snap.pending_risk is None
+
+
+def test_offline_the_account_comes_from_the_ledger(ledger: TradeLedger) -> None:
+    """No broker used to mean account "unknown", and a book that always read flat."""
+    ledger.record_fill(fill())
+    snap = Accountant(ledger=ledger, broker=None, clock=lambda: NOW).snapshot()
+    assert snap.account == "DU123"
+    assert [p.qty for p in snap.positions] == [2]
+
+
+def test_offline_two_accounts_are_surfaced_not_picked(ledger: TradeLedger) -> None:
+    ledger.record_fill(fill())
+    ledger.record_fill(fill(account_id="DU999", broker_fill_id="bf_9", client_order_id="gen_9"))
+    with pytest.raises(ValueError, match="2 accounts"):
+        Accountant(ledger=ledger, broker=None, clock=lambda: NOW).snapshot()
+    snap = Accountant(ledger=ledger, broker=None, clock=lambda: NOW).snapshot(account="DU999")
+    assert snap.account == "DU999"

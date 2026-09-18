@@ -28,6 +28,20 @@ to heat rather than zero -- the naive reading of "entry minus stop" for a
 missing stop is zero risk, which is exactly backwards, and getting this wrong
 would make an unprotected book look safest.
 
+**Protection is read from the broker's working orders, not the ledger.** The
+ledger's ``orders`` table is append-only, so its ``state`` column is the state
+an order was *born* in and its ``stop_price`` is the price it was *placed* at.
+A cancelled stop still reads ``accepted`` there, and a trailed stop still reads
+its first price. Both errors understate risk, which is the wrong direction for
+the number the risk engine sizes against. The broker's live order book is the
+truth; the ledger is the offline fallback, read through its event log, and a
+snapshot built from it says so.
+
+**Each stop protects only its own quantity.** One stop for 1 contract on a
+2-contract position leaves 1 contract unprotected, and that contract
+contributes its whole notional. Coverage is summed per stop, loosest first, so
+an over-covered position is still measured at its worst.
+
 **A stale quote makes the whole snapshot degraded.** Unrealised P&L is only as
 good as its marks. Past the staleness threshold the snapshot says so, spoken
 P&L is prefixed "on delayed data", and ``auto-within-limits`` is suspended --
@@ -95,6 +109,8 @@ class PositionView:
     quote_age_ms: int | None
     quote_source: str | None
     strategy: str | None
+    #: Contracts covered by a working exit stop. ``protected`` is this ≥ |qty|.
+    covered: int = 0
 
     @property
     def notional(self) -> Decimal:
@@ -109,6 +125,7 @@ class PositionView:
             "stop": None if self.stop is None else str(self.stop),
             "unrealized": None if self.unrealized is None else str(self.unrealized),
             "risk_open": str(self.risk_open), "protected": self.protected,
+            "covered": self.covered,
             "quote_age_ms": self.quote_age_ms, "quote_source": self.quote_source,
             "strategy": self.strategy,
         }
@@ -134,6 +151,20 @@ class AccountSnapshot:
     reconciled: bool | None = None
     reconciled_at: str | None = None
     problems: tuple[str, ...] = ()
+    #: Worst case of entries not yet filled. ``None`` when it cannot be known.
+    pending_risk: Decimal | None = ZERO
+
+    @property
+    def open_risk(self) -> Decimal | None:
+        """Everything that can still be lost: filled positions plus working entries.
+
+        ``None`` when the pending half is unknown -- the risk engine then
+        refuses to open, because a heat check against half the book is the
+        check that passes the order it should have stopped.
+        """
+        if self.pending_risk is None:
+            return None
+        return sum((v.risk_open for v in self.positions), ZERO) + self.pending_risk
 
     @property
     def net_today(self) -> Decimal | None:
@@ -170,6 +201,8 @@ class AccountSnapshot:
                 "net_pct": money(self.net_exposure_pct),
             },
             "portfolio_heat_pct": money(self.portfolio_heat_pct),
+            "pending_risk": money(self.pending_risk),
+            "open_risk": money(self.open_risk),
             "degraded": self.degraded,
             "degraded_reasons": list(self.degraded_reasons),
             "reconciled": self.reconciled,
@@ -210,9 +243,9 @@ class Accountant:
 
     def snapshot(self, *, account: str | None = None) -> AccountSnapshot:
         now = self.clock()
-        account = account or getattr(self.broker, "account", None) or "unknown"
+        account = account or getattr(self.broker, "account", None) or self._ledger_account()
         positions = self.ledger.rebuild(account_id=account)
-        stops = self._stops(account)
+        stops, stop_source = self._stops(account)
         broker_positions = self._broker_positions()
 
         views: list[PositionView] = []
@@ -239,15 +272,19 @@ class Accountant:
             if leg_unrealized is not None and unrealized is not None:
                 unrealized += leg_unrealized
 
-            stop = stops.get(symbol)
+            exits = [
+                (price, qty) for price, qty, side in stops.get(symbol, [])
+                if side == ("sell" if pos.qty > 0 else "buy")
+            ]
+            risk, covered = self._risk_open(pos, exits, multiplier, mark)
             views.append(
                 PositionView(
                     symbol=symbol, con_id=bp.get("con_id"), qty=pos.qty,
                     side="long" if pos.qty > 0 else "short",
-                    avg_entry=pos.avg_entry, multiplier=multiplier, mark=mark, stop=stop,
-                    unrealized=leg_unrealized,
-                    risk_open=self._risk_open(pos, stop, multiplier, mark),
-                    protected=stop is not None,
+                    avg_entry=pos.avg_entry, multiplier=multiplier, mark=mark,
+                    stop=self._tightest(exits, long=pos.qty > 0),
+                    unrealized=leg_unrealized, risk_open=risk,
+                    protected=covered >= abs(pos.qty), covered=covered,
                     quote_age_ms=age_ms, quote_source=source, strategy=None,
                 )
             )
@@ -269,6 +306,17 @@ class Accountant:
         unprotected = [v.symbol for v in views if not v.protected]
         if unprotected:
             problems.append(f"no protective stop on {', '.join(unprotected)}")
+        if stop_source == "ledger" and views:
+            reasons.append("stops read from the ledger, not the broker's live orders")
+
+        pending = self.pending_risk()
+        if pending is None:
+            # Unknown, not zero: a heat figure over half the book is the one
+            # that passes the order it should have stopped.
+            heat = None
+            problems.append("a working entry has no measurable stop — heat is unknown")
+        elif heat is not None and equity:
+            heat += (pending / equity) * Decimal(100)
 
         recon = self._reconciliation(account)
         return AccountSnapshot(
@@ -278,6 +326,7 @@ class Accountant:
             gross_exposure_pct=gross, net_exposure_pct=net,
             degraded=bool(reasons), degraded_reasons=tuple(reasons),
             reconciled=recon[0], reconciled_at=recon[1], problems=tuple(problems),
+            pending_risk=pending,
         )
 
     # ------------------------------------------------------------------
@@ -332,45 +381,181 @@ class Accountant:
     # ------------------------------------------------------------------
 
     def _risk_open(
-        self, pos: Position, stop: Decimal | None, multiplier: Decimal, mark: Decimal | None
-    ) -> Decimal:
-        """What this position can still lose, in money.
+        self,
+        pos: Position,
+        exits: list[tuple[Decimal, int]],
+        multiplier: Decimal,
+        mark: Decimal | None,
+    ) -> tuple[Decimal, int]:
+        """What this position can still lose, in money, and how much is covered.
 
-        With no stop the answer is not zero. The honest figure for an
-        unprotected position is its whole notional -- it can go to zero -- and
-        that is what makes an unprotected book read as the riskiest thing on
-        the page rather than the safest.
+        Each exit stop covers its own quantity at its own price. Loosest first,
+        so an over-covered position is measured at its worst rather than its
+        best. Whatever no stop covers contributes its whole notional: it can go
+        to zero, and that is what makes an unprotected book read as the
+        riskiest thing on the page rather than the safest.
         """
-        size = abs(Decimal(pos.qty)) * multiplier
-        if stop is None:
+        long = pos.qty > 0
+        left = abs(pos.qty)
+        risk = ZERO
+        covered = 0
+        # Loosest first: lowest stop for a long, highest for a short.
+        for price, qty in sorted(exits, key=lambda e: e[0], reverse=not long):
+            take = min(left, max(qty, 0))
+            if take <= 0:
+                continue
+            distance = (pos.avg_entry - price) if long else (price - pos.avg_entry)
+            risk += max(distance, ZERO) * Decimal(take) * multiplier
+            covered += take
+            left -= take
+            if left == 0:
+                break
+        if left:
             price = mark if mark is not None else pos.avg_entry
-            return size * price
-        if pos.qty > 0:
-            return max(pos.avg_entry - stop, ZERO) * size
-        return max(stop - pos.avg_entry, ZERO) * size
+            risk += Decimal(left) * price * multiplier
+        return risk, covered
 
-    def _stops(self, account: str) -> dict[str, Decimal]:
-        """Live protective stops per symbol, from the ledger's order rows.
+    @staticmethod
+    def _tightest(exits: list[tuple[Decimal, int]], *, long: bool) -> Decimal | None:
+        """The stop that fires first -- highest for a long, lowest for a short."""
+        if not exits:
+            return None
+        prices = [price for price, _ in exits]
+        return max(prices) if long else min(prices)
 
-        The *tightest* stop wins when a symbol has several: it is the one that
-        will actually fire, so it is the one that bounds the loss.
+    def _stops(self, account: str) -> tuple[dict[str, list[tuple[Decimal, int, str]]], str]:
+        """Working stop orders per symbol: ``(price, remaining qty, side)``.
+
+        From the broker's live order book whenever there is a broker, because
+        the ledger holds only what an order was born as. Offline, from the
+        ledger through its event log -- and only orders whose *latest* event is
+        a live state count. An order whose state is unknown is not counted: not
+        counting a live stop overstates risk, counting a dead one understates
+        it, and only one of those is safe.
         """
-        out: dict[str, Decimal] = {}
+        out: dict[str, list[tuple[Decimal, int, str]]] = {}
+        if self.broker is not None:
+            try:
+                book = self.broker.open_orders()
+            except Exception:  # noqa: BLE001
+                book = None
+            if book is not None:
+                for v in book:
+                    if not v.get("working") or v.get("type") not in ("stop", "trail"):
+                        continue
+                    if v.get("stop") is None:
+                        continue  # a trail with no stop price yet protects nothing measurable
+                    remaining = int(float(v.get("remaining") or v.get("qty") or 0))
+                    out.setdefault(self._resolve(v), []).append(
+                        (Decimal(str(v["stop"])), remaining, str(v.get("side")))
+                    )
+                return out, "broker"
+
+        live = ("submitted", "accepted", "partially_filled")
         rows = self.ledger.connection.execute(
-            "SELECT symbol, stop_price, limit_price, state FROM orders "
+            "SELECT client_order_id, symbol, side, qty, stop_price FROM orders "
             "WHERE account_id = ? AND role = 'stop'",
             (account,),
         ).fetchall()
         for row in rows:
-            if row["state"] in ("filled", "cancelled", "rejected", "expired"):
+            if row["stop_price"] is None:
                 continue
-            raw = row["stop_price"] or row["limit_price"]
-            if raw is None:
+            if self.ledger.order_state(account, row["client_order_id"]) not in live:
                 continue
-            price = Decimal(str(raw))
-            held = out.get(row["symbol"])
-            out[row["symbol"]] = price if held is None else max(held, price)
-        return out
+            out.setdefault(row["symbol"], []).append(
+                (Decimal(str(row["stop_price"])), int(row["qty"]), str(row["side"]))
+            )
+        return out, "ledger"
+
+    def pending_risk(self) -> Decimal | None:
+        """Worst case of entry orders that are working and not yet filled.
+
+        Heat over filled positions alone lets two quick entries both pass
+        before either fills -- "worst case, always" says they count now. Each
+        working entry is measured against the bracket stop the broker holds for
+        it: ``|entry − stop| × remaining × multiplier``.
+
+        ``None`` -- which makes the risk engine refuse to open -- when an entry
+        has no measurable stop. The spec makes a stop mandatory on every order
+        that opens risk, so a working entry without one is an anomaly, and the
+        heat it adds is unknown rather than zero.
+        """
+        if self.broker is None:
+            return ZERO
+        try:
+            book = self.broker.open_orders()
+        except Exception:  # noqa: BLE001
+            return None
+        account = getattr(self.broker, "account", None) or "unknown"
+        total = ZERO
+        for v in book:
+            if not v.get("working") or v.get("type") in ("stop", "trail"):
+                continue
+            order = self.ledger.order(account, v["ref"]) if v.get("ref") else None
+            if not order or order.get("role") != "entry":
+                continue
+            child = next(
+                (c for c in book
+                 if c.get("working") and c.get("parent_id") == v.get("order_id")
+                 and c.get("type") in ("stop", "trail")),
+                None,
+            )
+            if child is None:
+                return None
+            remaining = Decimal(str(v.get("remaining") or v.get("qty") or 0))
+            if child.get("type") == "trail" and child.get("trail") is not None:
+                distance = Decimal(str(child["trail"]))
+            else:
+                ref = v.get("limit")
+                if ref is None:
+                    ref, _, _ = self._mark(str(v.get("con_id")), {"con_id": v.get("con_id")})
+                if ref is None or child.get("stop") is None:
+                    return None
+                distance = abs(Decimal(str(ref)) - Decimal(str(child["stop"])))
+            multiplier = self._multiplier(v.get("con_id"))
+            if multiplier is None:
+                return None
+            total += distance * remaining * multiplier
+        return total
+
+    def _multiplier(self, con_id: Any) -> Decimal | None:
+        """The contract's multiplier, from the broker. Never assumed to be 1.
+
+        An NQ contract is $20 a point; guessing 1 would understate its risk
+        twenty-fold.
+        """
+        info_for = getattr(self.broker, "info_for_con", None)
+        if info_for is not None and con_id is not None:
+            try:
+                info = info_for(int(con_id))
+            except Exception:  # noqa: BLE001
+                info = None
+            if info is not None and getattr(info, "multiplier", None) is not None:
+                return Decimal(str(info.multiplier))
+        for p in self._broker_positions().values():
+            if p.get("con_id") == con_id and p.get("multiplier") is not None:
+                return Decimal(str(p["multiplier"]))
+        return None
+
+    def _ledger_account(self) -> str:
+        """The account to read when no broker names one.
+
+        Offline, the only witness is the ledger. Falling back to the literal
+        ``"unknown"`` asked it for an account that does not exist and reported
+        the book as flat whatever it held -- the quiet kind of wrong. One
+        account in the fills is unambiguous; several is surfaced, never picked.
+        """
+        rows = self.ledger.connection.execute(
+            "SELECT DISTINCT account_id FROM fills"
+        ).fetchall()
+        accounts = sorted(r["account_id"] for r in rows)
+        if len(accounts) == 1:
+            return accounts[0]
+        if accounts:
+            raise ValueError(
+                f"the ledger holds {len(accounts)} accounts ({', '.join(accounts)}) — name one"
+            )
+        return "unknown"
 
     def _resolve(self, p: dict[str, Any]) -> str:
         """The broker's position, named the way the ledger names it."""

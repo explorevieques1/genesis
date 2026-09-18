@@ -366,7 +366,30 @@ class OrderManager:
             available_funds=self.broker.available_funds(), init_margin_change=margin,
             recent=dict(self._recent), now_mono=time.monotonic(),
             broker_healthy=self.broker.connected(), killswitch_healthy=self._killswitch_ok,
+            **self._heat_inputs(risk),
         )
+
+    def _heat_inputs(self, risk: Any) -> dict[str, Any]:
+        """Check #8's inputs, from the accountant -- never computed here.
+
+        Any failure leaves them ``None``, and the risk engine rejects on
+        ``None``: an accountant that could not answer is not a book with zero
+        risk in it.
+        """
+        inputs: dict[str, Any] = {
+            "equity": None, "open_risk": None,
+            "max_portfolio_heat_pct": getattr(risk, "max_portfolio_heat_pct", None),
+        }
+        if self.accountant is None:
+            return inputs
+        try:
+            snap = self.accountant.snapshot(account=self.account)
+        except Exception:  # noqa: BLE001 - unknown heat rejects, it never passes
+            log.exception("accountant snapshot failed; heat is unknown")
+            return inputs
+        inputs["equity"] = snap.equity
+        inputs["open_risk"] = snap.open_risk
+        return inputs
 
     def envelope(self) -> Any:
         """The risk limits in force *now*, not at boot.

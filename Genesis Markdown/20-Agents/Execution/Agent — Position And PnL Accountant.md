@@ -31,6 +31,25 @@ implemented_by: [src/genesis/agents/execution/accountant.py, tests/execution/tes
 > halt — so broker positions are resolved through the ledger's con-id map
 > first, and an unresolvable one is reported as a position the ledger does not
 > know, which it is.
+>
+> **Three more, 2026-09-18, found while wiring heat into the risk engine:**
+>
+> *Protection is read from the broker's live orders, not the ledger.* The
+> `orders` table is append-only, so its `state` is the state an order was born
+> in and its `stop_price` the price it was placed at. A cancelled stop still
+> read as live, and a trailed stop at its first price — both understate risk,
+> the wrong direction for the number the risk engine sizes against. The ledger
+> is the offline fallback, read through `order_events`, and a snapshot built
+> from it is marked degraded.
+>
+> *Each stop covers only its own quantity.* A 1-lot stop on a 2-lot position
+> leaves one lot at full notional. Coverage is summed loosest-first so an
+> over-covered position is still measured at its worst.
+>
+> *Working entries count.* `pending_risk` is each unfilled entry to its bracket
+> stop; an entry with no measurable stop makes it `null`, and open risk with it.
+> Offline, the account comes from the ledger — the literal `"unknown"` it used
+> before made every offline book read flat.
 
 ## Purpose
 

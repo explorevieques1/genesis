@@ -1648,7 +1648,11 @@ def _cmd_account(config: Config, console: Console, *, reconcile: bool, as_json: 
             console.error(f"RECONCILIATION MISMATCH — {result['detail']}")
         return EXIT_OK if result["matched"] is not False else EXIT_CONFIG_ERROR
 
-    snap = call(accountant.snapshot)
+    try:
+        snap = call(accountant.snapshot)
+    except ValueError as exc:  # several accounts in the ledger: surfaced, never picked
+        console.error(str(exc))
+        return EXIT_CONFIG_ERROR
     if as_json:
         print(json.dumps(snap.to_dict(), indent=2))
         return EXIT_OK

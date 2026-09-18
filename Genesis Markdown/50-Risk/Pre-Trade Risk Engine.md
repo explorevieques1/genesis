@@ -4,8 +4,8 @@ tags: [agent, execution, risk, core]
 family: execution
 cadence: event
 tier: none
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/execution/risk.py, tests/execution/test_risk.py, ui/src/views/ExecutionPath.tsx]
 ---
 
 # 🛡️ Pre-Trade Risk Engine
@@ -120,6 +120,57 @@ legitimate order passes. Additionally:
 - Works with every LLM endpoint unreachable.
 - Every rejection reason is human-readable and spoken.
 - Missing data → reject, proven by test.
+
+## Implementation (2026-09-14)
+
+`src/genesis/execution/risk.py` — a pure function, `evaluate(proposal, context)`.
+Every input is gathered first and passed in; a `None` input rejects with
+`uncertain_input`. Checks as built, in order: approval mode · kill switch (an
+unreadable flag counts as engaged) · allow-list by contract root · session, from
+**the contract's own IBKR trading hours**, not `risk.session_window` · well-formed
+(whole contracts, prices on the tick grid, stop and target on the right side,
+fat-finger band against the arrival quote) · duplicate within 2 s · position
+(opening against an open position rejects; `reduce` may not reverse) ·
+**contracts per symbol** (resize to headroom) · **daily loss in dollars**,
+worst case = stop distance × contracts × IBKR's multiplier · prop firm (none
+configured) · buying power from IBKR's own what-if margin · auto mode demotes
+to confirm when the kill switch process is unreachable.
+
+**Portfolio heat (#8), built 2026-09-18.** Σ open risk + this order's worst case
+≤ `max_portfolio_heat_pct` × equity, resized down to the headroom per the breach
+table. Opening orders only; a widened stop is bound by the daily-loss check.
+
+- **Open risk is the accountant's number, never computed here** —
+  [[Agent — Position And PnL Accountant]]. It counts filled positions to their
+  live stops *and working entries to their bracket stops*: heat over filled
+  positions alone lets two quick entries both pass before either fills, which
+  "worst case, always" forbids.
+- **Every missing input rejects** — equity, open risk, the limit, the stop
+  distance. A working entry with no measurable stop makes open risk *unknown*,
+  not zero, and unknown refuses to open. A heat check that assumed zero for
+  what it could not read would pass exactly the order it exists to stop.
+- Equity is the broker's net liquidation. An unprotected position contributes
+  its whole notional, so an unprotected book blocks new risk until it is
+  protected.
+
+Reported as `not_built` on every decision, so no output implies they ran:
+max position % (futures are capped in contracts), correlated exposure,
+liquidity vs ADV, event window (the [[Economic Calendar]] feed exists; the
+check does not).
+
+**Stop offsets are in points.** Worst case is then exact on a delayed quote.
+A stop is mandatory for any order that opens risk.
+
+**Today's P&L** is IBKR's `dailyPnL` when it sends one. It sends nothing on an
+account with no activity (seen on paper, 2026-09-14), so the fallback is net
+liquidation now minus the first snapshot taken this CME session (18:00 New
+York). Both numbers are the broker's. P&L before Genesis first connected in a
+session is invisible to that fallback.
+
+**Paper exception to [[Safety Invariants]] #11 (ratified 2026-09-13).** The
+fat-finger band and stop-side checks may use IBKR's *delayed* quote while
+`brokers.primary.mode` is `paper`. Position, margin, buying power and P&L
+still come from the broker's account. Live trading does not inherit this.
 
 ## Related
 
