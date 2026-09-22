@@ -2,18 +2,23 @@
 title: Genesis Agent — Home
 tags: [moc, genesis]
 status: design
+implemented_by: [src/genesis/__init__.py]
 ---
 
 # 🜲 Genesis Agent
 
-> A JARVIS-style, always-on trading intelligence system. One voice-driven
-> orchestrator commands a fleet of specialist agents that research markets,
-> mark up charts, backtest ideas, write to Obsidian, and execute trades —
-> while the market is open **and** closed.
+> A JARVIS-style, always-on trading terminal. The trader commands it — by
+> typing or by speaking — and an orchestrator acts as their senior analyst,
+> putting a fleet of specialist agents to work: research markets, mark up
+> charts, backtest ideas, write to Obsidian, execute trades — while the market
+> is open **and** closed.
+>
+> Who commands, who advises, and what the surface owes the operator:
+> [[Operating Model]].
 
 **Status: design only. No code yet.** This vault is the spec Claude Code builds from.
 
-Start here → [[How To Use This Vault]] · [[Biological Design]] · [[System Overview]] · [[Agent Index]] · [[Build Order]]
+Start here → [[How To Use This Vault]] · [[Biological Design]] · [[Operating Model]] · [[System Overview]] · [[Agent Index]] · [[Build Order]]
 
 Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
 
@@ -23,7 +28,7 @@ Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
 
 | Pillar | Entry point | One line |
 |---|---|---|
-| 🎙️ **Voice** | [[Orchestrator]] | The only thing you talk to. ElevenLabs in and out. |
+| 🎙️ **Voice** | [[Orchestrator]] | A peer input to the terminal, not the door. ElevenLabs in and out. |
 | 🤖 **Agents** | [[Agent Index]] | ~30 specialists, each with tools, cadence, and a memory namespace. |
 | 🧠 **Memory** | [[Memory Fabric]] | Five layers. Obsidian is the human view, graph+vector is the machine view. |
 | 🛡️ **Risk** | [[Pre-Trade Risk Engine]] | One gate. No bypass. Separate process from the LLM path. |
@@ -48,6 +53,8 @@ Coding this out? → [[Working With Claude Code]] · [[Vault Map]]
 - [[Task Bus]] · [[Daemon And Cadence]] · [[Agent Contract]]
 - [[LLM Model Tiers]] · [[Charting Engine]] · [[Markup Spec]]
 - [[Observability]] · [[Config And Secrets]] · [[Error Handling And Degradation]]
+- [[Market Data Plane]] · [[Market Data Catalog]] — how data gets in, and what data is worth getting
+- [[Web Access]] — retrieval vs presentation, and when Genesis offers to show you a page
 
 ### 20 — Agents
 - [[Agent Index]] — the full fleet table

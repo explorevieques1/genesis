@@ -2,7 +2,7 @@
 title: Episodic Log
 tags: [memory]
 status: building
-implemented_by: [src/genesis/memory/episodic.py, tests/memory/test_episodic.py]
+implemented_by: [src/genesis/memory/episodic.py, tests/memory/test_episodic.py, src/genesis/ids.py]
 ---
 
 # Episodic Log

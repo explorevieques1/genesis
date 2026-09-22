@@ -2,21 +2,21 @@
 //
 // The banner. One row, and the discipline is what is *not* in it.
 //
-// A trading platform's top bar is where every team puts their feature, and the
-// result is forty pixels of icons nobody can name. This one carries five things
-// and each earns its place:
+// Left to right, and the order is the argument:
 //
 //   1. The sigil and the word GENESIS — identity, and the Core's state, which
 //      is the one animated thing in the chrome.
-//   2. The pages. Text, not icons: eight destinations with real names beat
-//      eight glyphs you have to hover to identify.
-//   3. Search. One field, ⌘K, which is where every professional tool put it.
-//   4. The workspace switcher — small, and only when the page has more than one.
-//   5. Voice, and the kill switch.
+//   2. The command line, immediately beside it. It is the primary input to the
+//      whole system (Operating Model §4), so it sits at the start of the bar
+//      rather than floating between the nav and a row of status dots.
+//   3. The main categories. Text, not icons: nine workspaces with real names
+//      beat nine glyphs you have to hover to identify.
+//   4. Then nothing until the right edge: voice, clear space, theme.
 //
-// Nothing else. No notification bell, no avatar, no logo lockup, no breadcrumb.
-// The numbers live one row below, in the safety strip, where `UI Stack §6`
-// requires them to render in plain DOM independent of everything above.
+// **The status readouts are not here.** Daemon connection, the six organ health
+// states, the render tier and the kill switch all live in the status widget one
+// row below — one place to look for "is the system alive", instead of a dot in
+// the banner, a strip under it and a bar under that.
 //
 // **A page whose capability is absent is dimmed, not hidden.** Hiding it would
 // make the system look smaller than it is; dimming it says "this exists and is
@@ -24,47 +24,37 @@
 
 import { useCapabilities } from '@/api/capabilities'
 import { CoreSigil } from '@/components/GenesisCore'
-import { KillSwitch } from '@/components/KillSwitch'
 import { TapToSpeak, type VoiceReply } from '@/components/TapToSpeak'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { useGenesis } from '@/store/useGenesis'
 import { PAGES, type PageId } from './pages'
-import { presetsFor, type Preset } from '@/workspace/presets'
 
 interface Props {
   page: PageId
   onPage: (page: PageId) => void
-  preset: Preset | null
-  onPreset: (preset: Preset) => void
   onCommand: () => void
-  onResetWorkspace: () => void
+  onClearSpace: () => void
   http: string
   onReply: (reply: VoiceReply) => void
 }
 
 export function TopBar({
-  page, onPage, preset, onPreset, onCommand, onResetWorkspace, http, onReply,
+  page, onPage, onCommand, onClearSpace, http, onReply,
 }: Props) {
   const coreState = useGenesis((s) => s.coreState)
-  const connection = useGenesis((s) => s.connection)
   const { state } = useCapabilities()
   const capabilities = state.status === 'ready' ? state.data.capabilities : null
-  const presets = presetsFor(page)
 
   return (
     <div
-      className="flex items-stretch hairline-b"
-      // 40px, not 34: the kill switch is two lines (the control and the note
-      // saying it is a separate process), and `Dashboard` requires it
-      // "persistent, always visible, never behind a menu". Clipping it to fit a
-      // thinner bar would be trading the one control that must always work for
-      // six pixels of chrome.
-      style={{ flexShrink: 0, height: 40, background: 'var(--bg-deep)' }}
+      className="flex items-center hairline-b"
+      // 36px and a single baseline. The bar used to be 40 to fit the kill
+      // switch's two lines; the kill switch now lives in the status widget, so
+      // everything left in here is one line tall and centres on one axis.
+      style={{ flexShrink: 0, height: 36, background: 'var(--bg-deep)', gap: 'var(--s-2)' }}
     >
       {/* identity */}
-      <div
-        className="flex items-center gap-2 hairline-r"
-        style={{ padding: '0 11px', flexShrink: 0 }}
-      >
+      <div className="flex items-center gap-2" style={{ padding: '0 11px', flexShrink: 0 }}>
         <CoreSigil state={coreState} size={17} />
         <span
           style={{
@@ -76,12 +66,52 @@ export function TopBar({
         </span>
       </div>
 
+      {/* ---- the command line ----
+        *
+        * Reads as a field, not a toolbar icon: it reaches every page, panel,
+        * series, agent and tool by name, and it is the door the parity rule
+        * requires a person to be able to use for anything Genesis can do.
+        *
+        * It is still a button: focus belongs to the real input inside the
+        * palette, and two focusable text fields for one search is how you get
+        * a keystroke typed into the wrong one. */}
+      <button
+        className="flex items-center gap-2"
+        onClick={onCommand}
+        title="Search pages, panels, symbols, agents and every tool by name — or type a command"
+        style={{
+          flex: '0 0 clamp(160px, 20vw, 280px)',
+          height: 24, padding: '0 var(--s-3)',
+          background: 'var(--bg-inset)',
+          border: '1px solid var(--hairline)',
+          borderRadius: 'var(--r-sm)',
+          color: 'var(--ink-faint)',
+          fontSize: 'var(--fs-sm)',
+        }}
+      >
+        <span aria-hidden style={{ color: 'var(--ink-dim)' }}>⌕</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          Search…
+        </span>
+        <span style={{ flex: 1 }} />
+        <kbd
+          className="num"
+          style={{
+            fontSize: 'var(--fs-micro)', color: 'var(--ink-faint)',
+            border: '1px solid var(--hairline-bright)', borderRadius: 3,
+            padding: '0 var(--s-2)', flexShrink: 0,
+          }}
+        >
+          ⌘K
+        </kbd>
+      </button>
+
       {/* pages */}
       {/* The pages never compress. Below ~1500px the workspace switcher and the
           nav were overlapping — "SETTINGS" printed on top of "FORENSICS" — so
           the nav is pinned and the switcher is the thing that gives. Navigation
           is the more important of the two. */}
-      <nav className="flex items-stretch" style={{ flexShrink: 0 }}>
+      <nav className="flex items-stretch self-stretch" style={{ flexShrink: 0 }}>
         {PAGES.map((def) => {
           const capability = def.requires && capabilities ? capabilities[def.requires] : null
           const absent = capability ? !capability.built : false
@@ -112,93 +142,21 @@ export function TopBar({
 
       <span style={{ flex: 1, minWidth: 8 }} />
 
-      {/* workspace — only when there is a choice to make */}
-      {presets.length > 1 && preset && (
-        <div
-          className="flex items-center gap-1 scroll-x"
-          style={{ padding: '0 8px', minWidth: 0 }}
+      <TapToSpeak http={http} onReply={onReply} />
+
+      {/* clear space — Home has no dock to clear */}
+      {page !== 'home' && (
+        <button
+          className="btn-ghost"
+          title="Close every panel in this workspace. Spawn what you want back by code — ⌘K, then CH, EV, BM…"
+          onClick={onClearSpace}
+          style={{ flexShrink: 0, color: 'var(--ink-ghost)' }}
         >
-          <span
-            className="label"
-            style={{ color: 'var(--ink-ghost)', flexShrink: 0 }}
-          >
-            workspace
-          </span>
-          {presets.map((option) => (
-            <button
-              key={option.id}
-              className="btn-ghost"
-              title={option.hint}
-              data-active={preset.id === option.id}
-              onClick={() => onPreset(option)}
-              style={{
-                flexShrink: 0, whiteSpace: 'nowrap',
-                color: preset.id === option.id ? 'var(--ink)' : undefined,
-                borderColor: preset.id === option.id ? 'var(--hairline-bright)' : undefined,
-                background: preset.id === option.id ? 'var(--bg-raised)' : undefined,
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-          <button
-            className="btn-ghost"
-            title="Discard your arrangement and return this workspace to its default layout"
-            onClick={onResetWorkspace}
-            style={{ color: 'var(--ink-ghost)' }}
-          >
-            reset
-          </button>
-        </div>
+          clear space
+        </button>
       )}
 
-      {/* search */}
-      <button
-        className="flex items-center gap-2 hairline-l"
-        onClick={onCommand}
-        title="Search symbols, pages, tools and agents"
-        style={{
-          padding: '0 11px', color: 'var(--ink-faint)',
-          fontSize: 'var(--fs-tiny)', flexShrink: 0,
-        }}
-      >
-        <span aria-hidden style={{ opacity: 0.7 }}>⌕</span>
-        <span>search</span>
-        <kbd
-          className="num"
-          style={{
-            fontSize: 'var(--fs-micro)', color: 'var(--ink-ghost)',
-            border: '1px solid var(--hairline)', borderRadius: 3,
-            padding: '0 3px',
-          }}
-        >
-          ⌘K
-        </kbd>
-      </button>
-
-      {/* connection — a dot, because it is binary and constant */}
-      <div
-        className="flex items-center hairline-l"
-        style={{ padding: '0 9px', flexShrink: 0 }}
-        title={
-          connection.status === 'open'
-            ? `connected to the daemon${connection.gap ? ' — with a gap in the event stream' : ''}`
-            : `not connected (${connection.status}) — is \`genesis serve\` running?`
-        }
-      >
-        <span
-          style={{
-            width: 6, height: 6, borderRadius: '50%',
-            background:
-              connection.status === 'open'
-                ? connection.gap ? 'var(--state-blocked)' : 'var(--verdict-pass)'
-                : 'var(--state-down)',
-          }}
-        />
-      </div>
-
-      <TapToSpeak http={http} onReply={onReply} />
-      <KillSwitch />
+      <ThemeToggle />
     </div>
   )
 }

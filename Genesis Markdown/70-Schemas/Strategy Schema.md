@@ -1,8 +1,8 @@
 ---
 title: Strategy Schema
 tags: [schema, strategy]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/backtest/strategy.py]
 ---
 
 # Strategy Schema

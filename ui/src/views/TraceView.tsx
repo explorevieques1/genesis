@@ -209,7 +209,7 @@ export const TraceView = memo(function TraceView({ now }: { now: number }) {
       <div className="hairline-t scroll-y" style={{ flexShrink: 0, maxHeight: 150 }}>
         <div className="label" style={{ padding: '5px 12px 2px' }}>events in this trace</div>
         {traceEvents.map((e) => (
-          <div key={e.id} className="flex gap-2 px-3" style={{ fontSize: 'var(--fs-micro)', opacity: Date.parse(e.ts) > cursor ? 0.25 : 1 }}>
+          <div key={e.id} className="flex gap-2 px-3" style={{ fontSize: 'var(--fs-micro)', opacity: Date.parse(e.ts) > cursor ? 0.45 : 1 }}>
             <span className="num" style={{ color: 'var(--ink-ghost)' }}>{clock(e.ts).slice(0, 12)}</span>
             <span className="num" style={{ color: 'var(--ink-faint)' }}>{e.event}</span>
             <span className="num truncate" style={{ color: 'var(--ink-ghost)' }}>{e.source}</span>

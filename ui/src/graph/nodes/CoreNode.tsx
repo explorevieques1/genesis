@@ -1,16 +1,19 @@
-// Spec: Genesis Markdown/60-UI/Genesis Core.md
+// Spec: Genesis Markdown/60-UI/Fleet View.md §Layout · 60-UI/Genesis Core.md
 //
-// The centre of the body map. This is the *graph* rendering of the core; the
-// animated presence itself is `components/GenesisCore.tsx`.
+// The centre of the body map — "Genesis at the centre" (Fleet View §Layout).
 //
-// Genesis Core §What it may never be, prohibition 2: **never a control.** A large
-// glowing target in the centre of the screen must not be able to act. This node
-// has no click handler, and adding one would be a spec violation, not a feature.
+// This is a *static* node: a bold rectangle, the orchestrator, nothing more. The
+// animated presence (`components/GenesisCore.tsx`) lives on Home — "the animated
+// presence at the centre of the idle screen" (Genesis Core §What it is for).
+// Running a particle canvas inside React Flow made the graph churn and let the
+// 300px node overlap the inner band; a plain node has neither problem.
+//
+// Genesis Core §What it may never be, prohibition 2: **never a control.** This
+// node has no click handler, and adding one would be a spec violation.
 
 import { memo } from 'react'
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react'
 import type { CoreState } from '@/types/events'
-import { GenesisCore } from '@/components/GenesisCore'
 
 export interface CoreNodeData extends Record<string, unknown> {
   state: CoreState
@@ -22,19 +25,26 @@ export type CoreFlowNode = Node<CoreNodeData, 'core'>
 export const CoreNode = memo(function CoreNode({ data }: NodeProps<CoreFlowNode>) {
   return (
     <div
-      className="flex flex-col items-center justify-center"
-      style={{ width: 340, height: 340, pointerEvents: 'none' }}
+      className="flex flex-col items-center justify-center select-none"
+      style={{
+        width: 200,
+        height: 84,
+        pointerEvents: 'none',
+        background: 'var(--bg-raised)',
+        border: '2px solid var(--core)',
+        borderRadius: 'var(--r-md)',
+        boxShadow: '0 0 0 5px color-mix(in oklab, var(--core) 13%, transparent)',
+      }}
     >
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
-      <GenesisCore state={data.state} size={300} />
       <div
         className="label"
-        style={{ marginTop: -34, color: 'var(--core-hot)', letterSpacing: '0.34em', fontSize: 'var(--fs-sm)' }}
+        style={{ color: 'var(--core-hot)', letterSpacing: '0.34em', fontSize: 'var(--fs-sm)', fontWeight: 700 }}
       >
         {data.label}
       </div>
-      <div className="num" style={{ fontSize: 'var(--fs-micro)', color: 'var(--ink-faint)', marginTop: 3 }}>
+      <div className="num" style={{ fontSize: 'var(--fs-micro)', color: 'var(--ink-faint)', marginTop: 4 }}>
         {data.inFlight} task{data.inFlight === 1 ? '' : 's'} in flight
       </div>
     </div>

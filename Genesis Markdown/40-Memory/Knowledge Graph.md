@@ -1,8 +1,8 @@
 ---
 title: Knowledge Graph
 tags: [memory]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/memory/graph.py, src/genesis/research/store.py, tests/research/test_canvas.py, ui/src/graph/nodes/EntityNode.tsx]
 ---
 
 # Knowledge Graph
@@ -109,6 +109,53 @@ Agents write entities and edges through their namespace. The heaviest writers:
 - Duplicate entities are merged nightly (same level within a tick tolerance, same
   thesis phrased differently).
 - Graph queries used in the hot path return in under 50 ms.
+
+## Implementation notes — the built core
+
+`src/genesis/memory/graph.py`. Entities, typed edges, supersession, namespaced
+writes and bounded expansion. Three things are enforced rather than intended:
+
+- **An edge to an entity that does not exist is refused**, by foreign key. A
+  dangling edge is a hole in an answer, and it is far cheaper to reject it at
+  write time than to explain a node that renders empty later.
+- **Nothing in the module computes similarity.** There is no code path that
+  creates an edge nobody asserted.
+- **Every row carries its writer's namespace**, which is what makes Memory
+  Fabric's single-writer rule checkable at all.
+
+**A twelfth entity type: `document`.** [[Research Canvas]]'s opening line is
+"documents, filings, charts, notes and the links between them", and none of the
+eleven covers a fetched web page or a filing. Modelling one as a `thesis` would
+be a lie about what it is — a page is not a claim, it is where a claim came
+from — and `derived_from` edges into it are exactly the provenance the canvas
+exists to show.
+
+**A fourteenth edge kind: `mentions`**, kept separate from `applies_to` on
+purpose. "This research note mentions NVDA" is not "this lesson applies to
+NVDA": one is a pointer, the other is a claim about scope. Collapsing them would
+let a passing mention answer *"which lessons apply to the trade I'm about to
+take?"*
+
+### Not built
+
+**Beliefs, promotion, retirement and nightly merges.** Those belong to
+[[Memory Consolidation]], and they need a corpus of repeated observations this
+system has not accumulated: a belief promoted from three observations is worse
+than no belief. The `belief` type is accepted so the consolidator has somewhere
+to write; nothing creates one yet.
+
+**Level outcome tracking**, the note's sleeper feature, is unreached for the
+same reason — it needs [[Agent — Level Watcher]] writing `held`/`broke` edges,
+which it does not do yet. The edge kinds exist and are refused to nobody.
+
+## Writers today
+
+[[Research Directory]] projects every note it stores: an entity per note
+(`thesis`, `idea` or `regime`), an entity per cited source (`document`), and
+`derived_from` edges between them. One hook, in the store, rather than three
+agents each remembering — an agent that forgets writes a note the canvas can
+never show, and the omission is invisible until someone goes looking for a node
+that should exist.
 
 ## Related
 

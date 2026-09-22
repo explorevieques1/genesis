@@ -24,7 +24,7 @@ import type { LayoutMode } from '@/graph/layout'
 import { AgentNode } from '@/graph/nodes/AgentNode'
 import { CoreNode } from '@/graph/nodes/CoreNode'
 import { McpNode, MemoryNode, SpinalNode } from '@/graph/nodes/SystemNode'
-import { FleetEdge } from '@/graph/edges/FleetEdges'
+import { FleetEdge, StructureEdge } from '@/graph/edges/FleetEdges'
 import { FAMILIES, FAMILY_ORDER } from '@/data/roster'
 import { Chip } from '@/components/EventStream'
 
@@ -35,12 +35,13 @@ const nodeTypes = {
   mcp: McpNode,
   memory: MemoryNode,
 }
-const edgeTypes = { fleet: FleetEdge }
+const edgeTypes = { fleet: FleetEdge, structure: StructureEdge }
 
 export const BodyMap = memo(function BodyMap({ now }: { now: number }) {
   const [mode, setMode] = useState<LayoutMode>('organism')
   const [showMcp, setShowMcp] = useState(true)
   const [showMemory, setShowMemory] = useState(true)
+  const [showStructure, setShowStructure] = useState(true)
 
   const filters = useGenesis((s) => s.filters)
   const setFilter = useGenesis((s) => s.setFilter)
@@ -50,7 +51,7 @@ export const BodyMap = memo(function BodyMap({ now }: { now: number }) {
   const clearSelection = useGenesis((s) => s.clearSelection)
   const selection = useGenesis((s) => s.selection)
 
-  const { nodes, edges, layoutSig } = useFleetGraph({ mode, showMcp, showMemory, now })
+  const { nodes, edges, layoutSig } = useFleetGraph({ mode, showMcp, showMemory, showStructure, now })
 
   // The default frame is the ORGANISM, not the whole canvas. Fitting the MCP
   // columns and the memory row too would shrink the fleet to unreadable — the
@@ -81,7 +82,7 @@ export const BodyMap = memo(function BodyMap({ now }: { now: number }) {
         proOptions={{ hideAttribution: true }}
         minZoom={0.12}
         maxZoom={2.2}
-        defaultViewport={{ x: 0, y: 0, zoom: 0.4 }}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.62 }}
       >
         <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="var(--hairline)" />
         <Controls showInteractive={false} position="bottom-right" />
@@ -114,7 +115,7 @@ export const BodyMap = memo(function BodyMap({ now }: { now: number }) {
                 onClick={() => toggleCollapsed(f)}
                 title={meta.organ}
                 className="flex items-center gap-[6px] w-full text-left"
-                style={{ fontSize: 'var(--fs-micro)', opacity: collapsed ? 0.4 : 1 }}
+                style={{ fontSize: 'var(--fs-micro)', opacity: collapsed ? 0.68 : 1 }}
               >
                 <span style={{ width: 3, height: 11, background: `var(--family-${f})`, flexShrink: 0 }} />
                 <span style={{ color: 'var(--ink-dim)' }}>{meta.label}</span>
@@ -160,7 +161,16 @@ export const BodyMap = memo(function BodyMap({ now }: { now: number }) {
           <Chip on={mode === 'layered'} onClick={() => setMode('layered')} title="elkjs layered, left-to-right — the System Overview topology">layered</Chip>
           <Chip on={showMcp} onClick={() => setShowMcp((v) => !v)} title="Senses (afferent) and hands (efferent)">mcp</Chip>
           <Chip on={showMemory} onClick={() => setShowMemory((v) => !v)}>memory</Chip>
+          <Chip on={showStructure} onClick={() => setShowStructure((v) => !v)} title="The always-on topology skeleton. Off = live traffic only.">wiring</Chip>
           <Chip on={filters.activeOnly} onClick={() => setFilter({ activeOnly: !filters.activeOnly })} title="Hide agents with no telemetry — the clutter control at 30+ nodes">active only</Chip>
+        </div>
+
+        <div className="label" style={{ margin: '8px 0 3px' }}>node status</div>
+        <div className="flex flex-col gap-[2px]">
+          <StatusLegend color="var(--state-working)" filled text="working — lit, glowing" />
+          <StatusLegend color="var(--state-idle)" filled text="idle — built, reporting in" />
+          <StatusLegend color="var(--state-idle)" text="offline — built, no telemetry" />
+          <StatusLegend color="var(--ink-ghost)" dashed text="spec — no module on disk yet" />
         </div>
       </div>
 
@@ -180,6 +190,23 @@ export const BodyMap = memo(function BodyMap({ now }: { now: number }) {
   )
 })
 
+function StatusLegend({
+  color, filled, dashed, text,
+}: { color: string; filled?: boolean; dashed?: boolean; text: string }) {
+  return (
+    <div className="flex items-center gap-[6px]" style={{ fontSize: 'var(--fs-micro)' }}>
+      <span
+        style={{
+          width: 7, height: 7, borderRadius: 999, flexShrink: 0,
+          background: filled ? color : 'transparent',
+          border: filled ? 'none' : `1px ${dashed ? 'dashed' : 'solid'} ${color}`,
+        }}
+      />
+      <span style={{ color: 'var(--ink-dim)' }}>{text}</span>
+    </div>
+  )
+}
+
 function EdgeLegend({
   kind, on, onClick, what,
 }: { kind: 'lineage' | 'memory' | 'event'; on: boolean; onClick: () => void; what: string }) {
@@ -188,7 +215,7 @@ function EdgeLegend({
       onClick={onClick}
       title={what}
       className="flex items-center gap-[6px] w-full text-left"
-      style={{ fontSize: 'var(--fs-micro)', opacity: on ? 1 : 0.35 }}
+      style={{ fontSize: 'var(--fs-micro)', opacity: on ? 1 : 0.62 }}
     >
       <svg width="22" height="8" style={{ flexShrink: 0 }}>
         <line
@@ -224,7 +251,7 @@ function FitToTopology({
   useEffect(() => {
     if (!layoutSig) return
     const t = setTimeout(
-      () => fitView({ nodes: frameRef.current, padding: 0.1, maxZoom: 0.85, duration: 320 }),
+      () => fitView({ nodes: frameRef.current, padding: 0.14, maxZoom: 1.0, duration: 320 }),
       80,
     )
     return () => clearTimeout(t)

@@ -39,6 +39,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
+from genesis.config import load_config, load_secrets
+
 log = logging.getLogger(__name__)
 
 __all__ = ["read_routes", "jsonable"]
@@ -129,18 +131,47 @@ def _guard(fn: Callable[..., Any]) -> Callable[..., Any]:
 # ---------------------------------------------------------------------------
 
 def _bars(read_only: bool = True):
-    from genesis.marketdata.store import BarStore
+    """The process's bar store, at the path **config** names.
 
-    return BarStore(read_only=read_only)
+    Two bugs met here. This opened ``DEFAULT_STORE_PATH`` while every writer
+    opened ``config.marketdata.store_path`` -- the same failure the memory
+    stores had, where agents write one file and the UI reports "store not
+    created yet" about another. And it opened a *second* connection with a
+    different ``read_only``, which DuckDB refuses outright.
+
+    ``open_store`` fixes the second; reading the path from config fixes the
+    first, and the two are the same fix: one process, one file, one handle.
+    """
+    from genesis.marketdata.store import open_store
+
+    return open_store(load_config().marketdata.store_path, read_only=read_only)
+
+
+def _memory_db(name: str) -> Path:
+    """Where a store actually lives, from config — not from a second guess.
+
+    The writers all build their paths as ``config.memory.db_path.parent / name``
+    (see ``cli._build_journal_fleet`` and friends). These routes used to hardcode
+    ``~/.genesis/memory/<name>``, and the two agreed only on a machine whose
+    config happened to put the bus there. Everywhere else the agents wrote to one
+    file and the UI reported "store not created yet" about a different one —
+    which looks exactly like an agent that never ran.
+
+    A missing file raises :class:`FileNotFoundError`, which ``_guard`` turns into
+    a reported absence. That is the honest state before anything has been written,
+    and it must stay a *read*: opening a store creates it, and a page load that
+    creates an empty database makes "has this ever run?" unanswerable.
+    """
+    path = (load_config().memory.db_path.parent / name).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(path)
+    return path
 
 
 def _journal():
     from genesis.journal.store import JournalStore
 
-    path = Path("~/.genesis/memory/journal.db").expanduser()
-    if not path.exists():
-        raise FileNotFoundError(path)
-    return JournalStore()
+    return JournalStore(path=_memory_db("journal.db"))
 
 
 def _company():
@@ -149,19 +180,70 @@ def _company():
     return CompanyStore()
 
 
+def _research():
+    from genesis.research.store import ResearchStore
+
+    # Read-only: the UI never writes research, and opening the writers' vault
+    # path here would let a listing create directories as a side effect.
+    return ResearchStore(path=_memory_db("research.db"), vault=None)
+
+
+def _ranges():
+    """The candle-range scrapbook. Shares the writer's store — one schema."""
+    from genesis.server.range_routes import range_store
+
+    return range_store()
+
+
+def _range_bars(range_id: str) -> dict[str, Any]:
+    """One saved range, in the shape `CH` already reads.
+
+    Tier 3 and `yfinance` ride on every bar exactly as they do for a stored
+    series, so the chart shades a range with the same distrust it shades any
+    free public feed with — which is the honest answer for a Yahoo snippet.
+    """
+    from datetime import datetime
+
+    store = _ranges()
+    meta = store.get(range_id)
+    if meta is None:
+        return _absent(f"no candle range {range_id}")
+    rows = store.bars(range_id)
+    return {
+        "available": True,
+        "symbol_id": f"CR:{range_id}",
+        "symbol": meta["name"],
+        "timeframe": meta["timeframe"],
+        "count": len(rows),
+        "bars": [
+            {
+                "time": int(datetime.fromisoformat(r["ts"]).timestamp()),
+                "ts": r["ts"],
+                "open": r["open"], "high": r["high"], "low": r["low"],
+                "close": r["close"], "volume": r["volume"],
+                "source": meta["source"], "tier": meta["tier"],
+                "adjusted": True,
+            }
+            for r in rows
+        ],
+        "coverage": [{
+            "start": meta["start"], "end": meta["end"],
+            "source": meta["source"], "tier": meta["tier"],
+            "bar_count": meta["bars"],
+        }],
+        "last_bar_at": rows[-1]["ts"] if rows else meta["end"],
+        "range": meta,
+    }
+
+
 def _charting():
     from genesis.charting.store import SpecStore
 
-    path = Path("~/.genesis/memory/charting.db").expanduser()
-    if not path.exists():
-        raise FileNotFoundError(path)
-    return SpecStore()
+    return SpecStore(path=_memory_db("charting.db"))
 
 
 def _config():
-    from genesis.config import load
-
-    return load()
+    return load_config()
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +274,84 @@ def read_routes() -> list[Any]:
 
         return {"available": True, **probe_all()}
 
+    @_guard
+    async def commands(request: Request) -> dict[str, Any]:
+        """The deterministic command table, for the Help surface.
+
+        Names and example phrasings only -- the regexes and the handlers stay
+        server-side. This is what lets the Help panel show *"chart NVDA
+        [daily]"* without the UI hand-maintaining a list that drifts from the
+        table the daemon actually matches against.
+        """
+        from genesis.commands import COMMANDS
+
+        return {
+            "available": True,
+            "commands": [
+                {"name": c.name, "help": c.help}
+                for c in COMMANDS
+                if c.help
+            ],
+        }
+
+    @_guard
+    async def biology(request: Request) -> dict[str, Any]:
+        """The organ map from `Biological Design`, each organ with its notes' status.
+
+        Parsed from the note on every call -- it is a few kilobytes of
+        markdown, and a cache would be a second copy of the body map.
+        """
+        from genesis.biology import NOTE, REPO, organs
+
+        if not NOTE.exists():
+            return _absent("the spec vault is not on disk", spec=str(NOTE.relative_to(REPO)))
+        return {"available": True, "source": str(NOTE.relative_to(REPO)), "organs": organs()}
+
+    @_guard
+    async def dna(request: Request) -> dict[str, Any]:
+        """The genome: every note with its status, the drift, and the prompts.
+
+        Afferent only, like everything in `genesis.dna` — there is no route
+        that writes a note or a prompt, and that absence is the design. An
+        organism that can edit its own genome can edit `Safety Invariants`.
+
+        Read through `load_cached`, which re-parses when any note's mtime
+        moves: a panel polls this, and 220 files per poll for an unchanged
+        vault is work nobody asked for. A change in Obsidian still lands on
+        the next call.
+        """
+        from genesis import dna as genome_module
+
+        if not (genome_module.VAULT / "00-Meta").exists():
+            return _absent("the spec vault is not on disk", spec="Genesis Markdown/")
+
+        genome = genome_module.load_cached()
+        findings = genome_module.check(genome)
+        sections: dict[str, list[dict[str, Any]]] = {}
+        for note in genome.notes:
+            sections.setdefault(note.section, []).append({
+                "name": note.name,
+                "rel": note.rel,
+                "status": note.status or "none",
+                "implemented_by": list(note.implemented_by),
+                "pointing_at_it": list(genome.pointing_at(note)),
+            })
+        return {
+            "available": True,
+            "counts": genome.counts(),
+            "honest": not findings,
+            "drift": [f.as_dict() for f in findings],
+            "kinds": {k: {"glyph": g, "why": w} for k, (g, w) in genome_module.KINDS.items()},
+            "collisions": {
+                name: [n.rel for n in notes]
+                for name, notes in genome.collisions().items()
+            },
+            "sections": [
+                {"section": name, "notes": notes} for name, notes in sections.items()
+            ],
+            "prompts": [p.as_dict() for p in genome_module.inventory()],
+        }
+
     # -- market data -------------------------------------------------------
 
     @_guard
@@ -202,12 +362,21 @@ def read_routes() -> list[Any]:
         configured watchlist masquerading as data — a symbol appears here
         because bars for it exist on this disk.
         """
+        from genesis.marketdata import ibkr_live
+
+        session = ibkr_live.current()
+        streamed = set(session.series) if session else set()
+        # `streaming` only when the session is actually live; a configured feed
+        # whose gateway is down is `configured`, never a green light.
+        live_state = "streaming" if session and session.status["state"] == "live" else "configured"
+
         store = _bars()
         try:
             out = []
             for symbol_id, timeframe, count in store.symbols():
                 last = store.last_bar_time(symbol_id, timeframe)
                 out.append({
+                    "live": live_state if (symbol_id, timeframe) in streamed else None,
                     "symbol_id": symbol_id,
                     "symbol": _ticker(symbol_id),
                     "timeframe": timeframe,
@@ -215,6 +384,25 @@ def read_routes() -> list[Any]:
                     "last_bar_at": last,
                     "coverage": store.coverage(symbol_id, timeframe),
                 })
+            # Saved candle ranges, after the held series: `SR` lists them
+            # beside the ingested ones, but the first row is what the surface
+            # lands on by default, and that should be history rather than a
+            # snippet. See `marketdata.ranges`.
+            out += [
+                {
+                    "symbol_id": f"CR:{r['id']}",
+                    "symbol": r["name"],
+                    "timeframe": r["timeframe"],
+                    "bars": r["bars"],
+                    "last_bar_at": r["end"],
+                    "coverage": [{
+                        "start": r["start"], "end": r["end"],
+                        "source": r["source"], "tier": r["tier"],
+                        "bar_count": r["bars"],
+                    }],
+                }
+                for r in _ranges().list()
+            ]
             return {"available": True, "symbols": out}
         finally:
             store.close()
@@ -234,6 +422,12 @@ def read_routes() -> list[Any]:
         if not symbol_id:
             return _absent("symbol_id required")
         limit = int(q.get("limit", 500))
+
+        # `CR:<id>` is a saved candle range, not a series in the bar store.
+        # Served here so `CH` draws one without knowing the difference —
+        # see `genesis.marketdata.ranges` for why they live apart.
+        if symbol_id.startswith("CR:"):
+            return _range_bars(symbol_id[3:])
 
         store = _bars()
         try:
@@ -276,6 +470,28 @@ def read_routes() -> list[Any]:
         finally:
             store.close()
 
+    @_guard
+    async def broker_account(request: Request) -> dict[str, Any]:
+        """The IBKR session: connection state, balances, positions.
+
+        Served from the snapshot the live session already holds -- a page load
+        never opens a broker connection of its own. The login name is shown so
+        you can see *which* login the gateway used; the password never leaves
+        ``~/.genesis/.env``.
+        """
+        import os
+
+        from genesis.marketdata import ibkr_live
+
+        live = ibkr_live.current()
+        if live is None:
+            return _absent(
+                "IBKR is not enabled. Set marketdata.adapters.ibkr.enabled: true "
+                "in ~/.genesis/config.yaml and restart `genesis serve`.",
+                spec="deploy/ib-gateway/README.md",
+            )
+        return {**live.snapshot(), "login": os.environ.get("IB_USERID") or None}
+
     # -- companies ---------------------------------------------------------
 
     @_guard
@@ -304,6 +520,21 @@ def read_routes() -> list[Any]:
                 "profile": summarise(profile),
                 "fresh_groups": sorted(store.fresh_groups(symbol)),
             }
+        finally:
+            store.close()
+
+    @_guard
+    async def company_description(request: Request) -> dict[str, Any]:
+        """The `CO` page, shaped. Cached only, like `company_profile`."""
+        from genesis.company.profile import describe
+
+        symbol = request.path_params["symbol"].upper()
+        store = _company()
+        try:
+            profile = store.read(symbol)
+            if profile is None:
+                return _absent(f"{symbol} not in the local company store")
+            return {"available": True, **describe(profile)}
         finally:
             store.close()
 
@@ -555,6 +786,129 @@ def read_routes() -> list[Any]:
         return {"available": True, "config": body}
 
     @_guard
+    async def settings_models(request: Request) -> dict[str, Any]:
+        """The tier table, what each tier can actually reach, and what it cost.
+
+        One route rather than two because the panel is answering one question
+        -- *is the brain working and what is it charging me?* -- and a tier
+        table without usage beside it is the configuration the operator already
+        cannot verify.
+
+        **Reachability is not probed here.** A GET that fires four model calls
+        would bill the operator for opening a settings panel, and a page that
+        spends money on render is its own bug. This reports what is configured,
+        whether the key exists, and what past calls recorded. Actually probing
+        is ``genesis config check`` -- a thing a person chooses to run.
+        """
+        from genesis.llm.backend import ollama_status
+        from genesis.llm.openai_compat import PROVIDERS
+        from genesis.llm.usage import UsageLog
+
+        config = _config()
+        secrets = load_secrets(Path("~/.genesis/.env"))
+
+        tiers = []
+        for name in ("nano", "small", "large", "vision", "embedding"):
+            tier = getattr(config.llm, name)
+            provider = PROVIDERS.get(tier.backend)
+            if tier.backend == "anthropic":
+                env_var, key_present = "ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY" in secrets
+            elif provider is not None:
+                env_var, key_present = provider.env_var, provider.env_var in secrets
+            else:
+                # local (ollama, onnx-local) or `none`: no credential involved
+                env_var, key_present = None, True
+            # The one probe cheap enough to run on a render: Ollama's model
+            # list, over loopback. A local tier is the only one that can look
+            # perfectly configured and be entirely dead -- no key to be
+            # missing, and `ollama pull` never run. Hosted tiers stay unprobed
+            # for the reason in the docstring.
+            blocker = (
+                ollama_status(tier.model) if tier.backend == "ollama" else None
+            )
+            tiers.append({
+                "tier": name,
+                "backend": tier.backend,
+                "model": tier.model,
+                "env_var": env_var,
+                "key_present": key_present,
+                "dev_only": bool(provider and provider.dev_only),
+                "local": tier.backend in ("ollama", "onnx-local"),
+                "signup": provider.signup if provider else None,
+                #: Why this tier cannot answer, when that is knowable for free.
+                "blocker": blocker,
+            })
+
+        try:
+            log = UsageLog(config.memory.db_path)
+            today = [
+                {
+                    "tier": u.tier,
+                    "backend": u.backend,
+                    "model": u.model,
+                    "calls": u.calls,
+                    "input_tokens": u.input_tokens,
+                    "output_tokens": u.output_tokens,
+                    "total_tokens": u.total_tokens,
+                    "p50_latency_ms": round(u.p50_latency_ms),
+                    "failures": u.failures,
+                    "cost_usd": u.cost_usd,
+                }
+                for u in log.by_tier()
+            ]
+            history = [
+                {"day": day, "input_tokens": sent, "output_tokens": received}
+                for day, sent, received in log.daily_totals()
+            ]
+            tokens_today = log.tokens_today()
+            log.close()
+        except Exception as exc:  # noqa: BLE001 - no meter yet is not an error
+            today, history, tokens_today = [], [], 0
+            _ = exc
+
+        return {
+            "available": True,
+            "tiers": tiers,
+            "usage_today": today,
+            "history": history,
+            "tokens_today": tokens_today,
+            "daily_token_budget": config.llm.daily_token_budget,
+            "live_broker": config.is_live,
+        }
+
+    @_guard
+    async def settings_set_model(request: Request) -> dict[str, Any]:
+        """Point one tier at one model.
+
+        The efferent twin of ``settings_models``, and deliberately narrow: it
+        writes ``llm.<tier>`` and nothing else. A general config-write route
+        would be a path from the browser to the risk limits, and Safety
+        Invariants #9 is explicit that loosening autonomy is not a thing a
+        panel does casually.
+        """
+        from genesis.config import ConfigError
+        from genesis.llm.tiers import set_tier
+
+        body = await request.json()
+        try:
+            change = set_tier(
+                str(body.get("tier") or ""),
+                str(body.get("backend") or ""),
+                str(body.get("model") or ""),
+            )
+        except ConfigError as exc:
+            return _absent(str(exc))
+        return {
+            "ok": True,
+            "tier": change.tier,
+            "backend": change.backend,
+            "model": change.model,
+            "changed": change.changed,
+            "restart_required": change.restart_required,
+            "written_to": str(change.path),
+        }
+
+    @_guard
     async def settings_audio(request: Request) -> dict[str, Any]:
         """Real input devices on this machine, for the microphone picker.
 
@@ -584,12 +938,61 @@ def read_routes() -> list[Any]:
             })
         return {"available": True, "devices": devices}
 
+    # -- the research directory --------------------------------------------
+
+    @_guard
+    async def research_notes(request: Request) -> dict[str, Any]:
+        """The directory listing: what the research family has saved.
+
+        Superseded versions are excluded by default -- researching a subject
+        twice deepens one note, and a listing that shows both reads as
+        duplicated work rather than as revision. `?history=<subject>` asks for
+        the versions of one subject instead, and `?trace=<id>` for everything
+        one prompt produced -- its findings and any note an agent wrote.
+        """
+        store = _research()
+        params = request.query_params
+        history = params.get("history")
+        if params.get("trace"):
+            notes = store.by_trace(params["trace"])
+        elif history:
+            notes = store.history(params.get("kind", "topic"), history)
+        else:
+            notes = store.notes(
+                kind=params.get("kind") or None,
+                subject=params.get("subject") or None,
+                query=params.get("q") or None,
+                limit=min(int(params.get("limit", 100)), 500),
+            )
+        return {
+            "available": True,
+            "counts": store.counts(),
+            # The list view does not need every note's full body, and shipping
+            # it makes a directory of long research notes a megabyte-scale
+            # response. The detail route has it.
+            "notes": [{k: v for k, v in n.to_dict().items() if k != "body"} for n in notes],
+        }
+
+    @_guard
+    async def research_note(request: Request) -> dict[str, Any]:
+        note = _research().note(request.path_params["note_id"])
+        if note is None:
+            return _absent(f"no research note {request.path_params['note_id']!r}")
+        return {"available": True, "note": note.to_dict()}
+
     return [
         Route("/v1/capabilities", capabilities),
+        Route("/v1/commands", commands),
+        Route("/v1/biology", biology),
+        Route("/v1/dna", dna),
+        Route("/v1/research/notes", research_notes),
+        Route("/v1/research/notes/{note_id}", research_note),
         Route("/v1/market/symbols", market_symbols),
         Route("/v1/market/bars", market_bars),
+        Route("/v1/broker/account", broker_account),
         Route("/v1/company", company_list),
         Route("/v1/company/{symbol}", company_profile),
+        Route("/v1/company/{symbol}/description", company_description),
         Route("/v1/journal/entries", journal_entries),
         Route("/v1/journal/lessons", journal_lessons),
         Route("/v1/journal/patterns", journal_patterns),
@@ -600,4 +1003,6 @@ def read_routes() -> list[Any]:
         Route("/v1/fleet/agents", fleet_agents),
         Route("/v1/settings/config", settings_config),
         Route("/v1/settings/audio", settings_audio),
+        Route("/v1/settings/models", settings_models),
+        Route("/v1/settings/models/set", settings_set_model, methods=["POST"]),
     ]

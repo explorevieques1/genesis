@@ -8,7 +8,8 @@ tags: [meta]
 | Term | Meaning in Genesis |
 |---|---|
 | **Agent** | A focused specialist with one job, its own prompt, tool allow-list, memory namespace, and cadence. See [[Agent Contract]]. |
-| **Orchestrator** | The voice-driven coordinator. The only component the user talks to. See [[Orchestrator]]. |
+| **Orchestrator** | Genesis itself — the senior analyst. Takes a request (typed or spoken), decides what would answer it, and puts the fleet on it. See [[Orchestrator]], [[Operating Model]]. |
+| **Parity rule** | Anything Genesis can do, a person can do by hand, through the same door and the same audit line. [[Operating Model]] §2. |
 | **Cadence** | When an agent runs: `on-demand`, `market-open`, `market-closed`, `cron`, or `event`. See [[Daemon And Cadence]]. |
 | **Task Bus** | The priority queue all work flows through. Agents never call each other directly. See [[Task Bus]]. |
 | **Idea** | A structured, ranked trade thesis with entry zone, invalidation, timeframe, and confidence. See [[Idea Schema]]. |

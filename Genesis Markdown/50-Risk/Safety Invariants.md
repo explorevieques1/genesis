@@ -1,8 +1,8 @@
 ---
 title: Safety Invariants
 tags: [risk, core]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/metrics/__init__.py, ui/src/components/SafetyFloor.tsx, ui/src/graph/nodes/SystemNode.tsx]
 ---
 
 # 🔒 Safety Invariants
@@ -90,6 +90,12 @@ a public endpoint. Other tiers answer questions; only tier 1 moves money.
 ([[Market Data Sources]])
 
 **Test:** feed the risk engine a tier-2 or tier-3 quote; assert rejection, not use.
+
+**Paper exception (ratified 2026-09-13, [[Open Questions]] §1).** While
+`brokers.primary.mode` is `paper`, the fat-finger band and stop-side checks may
+read IBKR's *delayed* quote (tier 3). Position, margin, buying power and daily
+P&L still come from the broker's account. The exception ends at live: a live
+order sized or checked against a delayed quote is a violation.
 
 ### 12. UI automation can never reach an order path
 [[genesis-tradingview-mcp]] drives a desktop app that has broker integration built

@@ -70,6 +70,10 @@ alpha factors, backtesting ML signals, portfolio construction.
 - `19_risk_management/` — risk metrics and controls
 - `11_ml_pipeline/` — the full ML4T workflow
 - `17_portfolio_construction/` — weights, constraints, rebalancing
+- `data/equities/fundamentals/xbrl_download.py` — SEC EDGAR XBRL client: the
+  mandatory contact `User-Agent` (SEC 403s anonymous clients), CIK-keyed
+  caching, and the **fiscal-period-vs-filed-date** keying that prevents
+  lookahead bias in statement data
 - `22_rag_financial_research/` — retrieval over financial documents
 - `23_knowledge_graphs/` — entity graphs over market data
 - `24_autonomous_agents/` — LLM agents that research and trade
@@ -118,7 +122,16 @@ Best for: agent orchestration design, prompt structure, risk-debate pattern.
 - `tradingagents/graph/` — the agent graph / control flow
 - `tradingagents/agents/risk_mgmt/` — aggressive/conservative/neutral debators
 - `tradingagents/agents/managers/` — research + portfolio manager
-- `tradingagents/dataflows/` — data tool wrappers
+- `tradingagents/dataflows/` — **the multi-vendor data layer**, and the best
+  reference in the corpus for a yfinance-primary company-data stack:
+  - `interface.py` — `VENDOR_METHODS` chain-of-vendors with typed per-vendor
+    errors, walked in configured order; no silent fallback to an unconfigured
+    vendor
+  - `stockstats_utils.py` — `yf_retry`: backoff on rate limits ONLY, everything
+    else propagates; plus a present-but-stale frame guard
+  - `symbol_utils.py` — ticker normalisation and the `NoMarketDataError`
+    taxonomy (yfinance returns a truthy dict for a nonexistent symbol)
+  - `fred.py` — small clean client shape for a keyed free API
 
 ### FinRL
 Financial reinforcement learning: gym-style market envs + DRL agents. Best for:

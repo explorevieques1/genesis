@@ -4,8 +4,8 @@ tags: [agent, charting]
 family: charting
 cadence: on-demand
 tier: vision
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/charting/pattern_recognition.py, src/genesis/charting/structure.py, tests/charting/test_structure.py, tests/charting/test_agents.py]
 ---
 
 # 👁️ Agent — Pattern Recognition

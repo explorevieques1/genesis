@@ -46,6 +46,7 @@ __all__ = [
     "Plan",
     "PlanError",
     "PlanTask",
+    "prune_unrunnable",
     "topological_order",
     "validate_plan",
 ]
@@ -260,3 +261,61 @@ def _first_error(exc: ValidationError) -> str:
     first = errors[0]
     where = ".".join(str(p) for p in first.get("loc", ())) or "plan"
     return f"{where}: {first.get('msg', 'invalid')}"
+
+
+def prune_unrunnable(plan: Plan, registry: Any = None) -> tuple[Plan, tuple[str, ...]]:
+    """Drop the tasks no registered agent can run; keep the rest.
+
+    "Research market cycles and add it to my library" is one instruction the
+    planner reads as two, and the second half names an agent or a task type
+    that does not exist. Rejecting the whole plan for that meant the research
+    never ran and the operator got prose from the large tier instead of a
+    saved note -- a failure that looks exactly like a success.
+
+    So an unrunnable task is dropped, with its reason, and whatever remains is
+    dispatched. Anything that depended on a dropped task goes with it: its
+    input will never arrive, and running it anyway would produce a confident
+    answer built on nothing.
+
+    **The execution family is not pruned.** :func:`validate_plan` still raises
+    on it. Dropping it quietly would turn the loudest signal the orchestrator
+    has -- a planned task reaching for the order path -- into a log line
+    nobody reads (Safety Invariants §1).
+    """
+    if registry is None or not plan.tasks:
+        return plan, ()
+
+    dropped: dict[str, str] = {}
+    for task in plan.tasks:
+        capability = registry.get(task.agent)
+        if capability is None:
+            dropped[task.id] = f"no agent named {task.agent!r}"
+        elif capability.family == "execution":
+            continue  # validate_plan's job, and it must stay loud
+        elif capability.task_types and task.type not in capability.task_types:
+            dropped[task.id] = (
+                f"{task.agent!r} does not handle {task.type!r} — it handles: "
+                f"{', '.join(capability.task_types)}"
+            )
+
+    if not dropped:
+        return plan, ()
+
+    # Cascade, to a fixed point: a survivor whose dependency was dropped is
+    # itself unrunnable. Bounded by the task count, so the loop terminates.
+    for _ in range(len(plan.tasks)):
+        orphans = {
+            t.id: f"depends on {dep!r}, which was dropped"
+            for t in plan.tasks
+            if t.id not in dropped
+            for dep in t.depends_on
+            if dep in dropped
+        }
+        if not orphans:
+            break
+        dropped.update(orphans)
+
+    kept = tuple(t for t in plan.tasks if t.id not in dropped)
+    reasons = tuple(f"{tid}: {why}" for tid, why in sorted(dropped.items()))
+    speak_after = plan.speak_after if plan.speak_after not in dropped else None
+    return plan.model_copy(update={"tasks": kept, "speak_after": speak_after}), reasons

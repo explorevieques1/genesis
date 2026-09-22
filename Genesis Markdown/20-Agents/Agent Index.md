@@ -121,13 +121,14 @@ only agent that reads evidence back and decides. Building a producer without the
 consumer would fill a directory nothing reads; building the consumer without a
 producer would give it nothing to fuse.
 
-Building: [[Agent — News And Catalyst]] (summaries and briefs, fed by [[Agent — News Collector]]).
-Not built: [[Agent — Screener]],
-[[Agent — Sentiment]], [[Agent — Fundamental]], [[Agent — Regime And Correlation]].
-The next one that unlocks the most is the Screener — it is the only source of
-mechanical *candidates*, and without it the Idea Synthesizer only ever reasons
-about symbols a person named. Nothing from Strategy or Execution is built.
-See [[Build Order]].
+Built: [[Agent — Topic Researcher]], [[Agent — Market Analyst]],
+[[Agent — Idea Synthesizer]], [[Agent — News Collector]].
+Building: [[Agent — Screener]], [[Agent — Fundamental]],
+[[Agent — News And Catalyst]], [[Agent — Session Plan]].
+Not built: [[Agent — Sentiment]], [[Agent — Regime And Correlation]].
+Strategy has the [[Agent — Backtest Runner]] in progress and the rest in spec;
+all four Execution agents are building, trading on IBKR paper. Charting and
+Journal are complete. See [[Build Order]].
 
 ### Dataview (if the plugin is enabled)
 

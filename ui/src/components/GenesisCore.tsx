@@ -108,7 +108,11 @@ export const GenesisCore = memo(function GenesisCore({ state, size = 240 }: Prop
       current.glow += (target.glow - current.glow) * k
 
       const c = size / 2
-      const R = (size / 2) * current.shell
+      // Headroom: the containment ring sits at R+8 and curl-noise pushes
+      // particles out to ~1.2·R, so the shell radius has to leave a margin or
+      // those reach past the canvas edge and get clipped — visible as four
+      // flattened sides on the sphere.
+      const R = (size / 2 - 8) * current.shell * 0.82
       ctx.clearRect(0, 0, size, size)
 
       // Containment ring. In `alert` it closes into a solid circle — a shape

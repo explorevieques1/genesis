@@ -61,7 +61,13 @@ export const AgentNode = memo(function AgentNode({ data }: NodeProps<AgentFlowNo
       className="relative select-none"
       style={{
         width: 176,
-        opacity: dimmed ? 0.16 : unbuilt ? 0.34 : unseen ? 0.55 : 1,
+        // Recession, from the token layer rather than from literals here.
+        // These compounded with the ink ramp -- `--ink-dim` at 0.34 on this
+        // ground is not dim, it is gone -- and the fleet is *mostly* unbuilt
+        // agents today, so the view read as empty when it was full.
+        opacity: dimmed
+          ? 'var(--dim-out)'
+          : unbuilt ? 'var(--dim-unbuilt)' : unseen ? 'var(--dim-unseen)' : 1,
         transition: 'opacity 200ms linear',
       }}
     >
@@ -93,10 +99,13 @@ export const AgentNode = memo(function AgentNode({ data }: NodeProps<AgentFlowNo
             className={live ? 'anim-pulse' : ''}
             style={{
               width: 5, height: 5, borderRadius: 999, flexShrink: 0,
-              // Hollow when there is no code behind it. An unbuilt agent must
-              // never present the filled dot that means "idle and ready".
-              background: unbuilt ? 'transparent' : accent,
-              border: unbuilt ? '1px solid var(--ink-ghost)' : 'none',
+              // Hollow when there is nothing reporting behind it. Neither an
+              // unbuilt agent nor a built-but-silent one may present the filled
+              // dot that means "idle and ready" — that is the online/offline tell.
+              background: unbuilt || unseen ? 'transparent' : accent,
+              border: unbuilt
+                ? '1px solid var(--ink-ghost)'
+                : unseen ? '1px solid var(--state-idle)' : 'none',
             }}
           />
           <span
@@ -110,8 +119,8 @@ export const AgentNode = memo(function AgentNode({ data }: NodeProps<AgentFlowNo
               title="Specified in the vault; no module imports. This organ does not exist yet."
               style={{
                 marginLeft: 'auto', flexShrink: 0, fontSize: 'var(--fs-micro)',
-                letterSpacing: '0.08em', color: 'var(--ink-ghost)',
-                border: '1px dashed var(--ink-ghost)', borderRadius: 2,
+                letterSpacing: '0.08em', color: 'var(--ink-faint)',
+                border: '1px dashed var(--ink-faint)', borderRadius: 2,
                 padding: '0 3px', lineHeight: '12px',
               }}
             >
@@ -138,7 +147,7 @@ export const AgentNode = memo(function AgentNode({ data }: NodeProps<AgentFlowNo
         <div className="flex items-center gap-[5px] min-w-0" style={{ fontSize: 'var(--fs-micro)' }}>
           <PhaseMark phase={failed ? 'error' : phase} />
           <span className="num truncate" style={{ color: 'var(--ink-faint)' }}>
-            {failed ? 'failed' : taskType ?? (unseen ? 'no telemetry' : 'idle')}
+            {failed ? 'failed' : taskType ?? (unseen ? 'offline' : 'idle')}
           </span>
           {startedAt !== null && (
             <span className="num ml-auto" style={{ color: 'var(--ink-dim)' }}>

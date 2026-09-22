@@ -2,7 +2,7 @@
 title: Working Memory
 tags: [memory]
 status: built
-implemented_by: [src/genesis/memory/working.py]
+implemented_by: [src/genesis/memory/working.py, src/genesis/orchestrator/record.py, tests/orchestrator/test_record.py, tests/test_working_memory.py]
 ---
 
 # Working Memory
@@ -54,6 +54,27 @@ Pattern: [[Repo — jarvis]] `listening/transcript_buffer.py`.
               durable facts ──► [[Knowledge Graph]]
 ```
 
+**Built** — `orchestrator/record.py` is the other end of the `on_rolloff` hook,
+and of `restore()`. Two things are deliberate:
+
+*The summary is built deterministically, not by a model.* Rolloff happens inside
+`add_turn`, on the voice path; a hosted call there would put a network round trip
+between hearing you and answering. A restart summary that is dull but instant and
+always correct is the better trade.
+
+*Ambient speech is never written down.* Not the text, not a word count, not a
+timestamp — the acceptance criterion below says **zero disk writes**, and the
+recorder returns before the append rather than filtering fields on the way past.
+
+The first implementation kept a per-utterance word count "for observability" and
+a review caught it against that criterion. The count is not content, but it is a
+conversation's *cadence*: how many people are in the room, when they arrived,
+when they went quiet. That is a lot to learn from a field nobody thought of as
+data, and it would sit beside the [[10-Architecture/Voice Stack]] privacy line —
+audio leaves the machine only after the local wake gate fires — quietly
+undermining it. A session-local counter serves the [[Dashboard]] without any of
+that, and a restart forgets it.
+
 Rolloff is summarisation, not deletion. What was said is preserved in the episodic
 log; what it *meant* is preserved in the graph.
 
@@ -82,6 +103,8 @@ Working memory is in the hot path of every utterance. It must stay small.
 ## Acceptance criteria
 
 - Ambient conversation for 10 minutes produces zero actions and zero disk writes.
+  Both halves are tested: no task is dispatched, and the [[Episodic Log]] row
+  count is unchanged.
 - A follow-up referencing ambient context is understood correctly.
 - Restart expires all pending confirmations, tested.
 - Working memory never exceeds its token cap, even under a burst of agent results.

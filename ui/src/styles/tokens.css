@@ -9,20 +9,51 @@
 :root {
   color-scheme: dark;
 
-  /* ---- ground ---- */
+  /* ---- ground ----
+   *
+   * Lifted 2026-09-06. The previous ramp was authored against a bright display
+   * and was close to unreadable on anything else: panels sat 6 units off the
+   * void, so a panel edge was invisible and the surface read as one flat sheet
+   * of black with text floating on it.
+   *
+   * Panels are now separated from the ground by luminance, not only by a
+   * hairline — the hairline is the *seam*, not the only thing distinguishing a
+   * panel from the space around it. */
   --bg-void: #04060b;
-  --bg-deep: #070b14;
-  --bg-panel: #0a1019;
-  --bg-raised: #0e1622;
-  --bg-inset: #060a11;
-  --hairline: #16202e;
-  --hairline-bright: #223044;
+  --bg-deep: #080d17;
+  --bg-panel: #0d1622;
+  --bg-raised: #14202f;
+  --bg-inset: #070c14;
+  --hairline: #24344a;
+  --hairline-bright: #3a5474;
 
-  /* ---- ink ---- */
-  --ink: #d6e2f0;
-  --ink-dim: #8296ae;
-  --ink-faint: #4d6076;
-  --ink-ghost: #2c3a4c;
+  /* ---- ink ----
+   *
+   * Four weights, and the bottom two were decoration rather than text: against
+   * `--bg-void`, `--ink-faint` measured about 2.8:1 and `--ink-ghost` about
+   * 1.55:1. WCAG's floor for body text is 4.5:1 and for large text 3:1, so
+   * `.label` — which is *every* field caption on this surface — was below the
+   * legibility floor everywhere it appeared.
+   *
+   * The ramp now bottoms out at roughly 3.4:1, and `--ink-faint` clears 5:1.
+   * Hierarchy is still four steps; it is just four steps you can read. */
+  --ink: #eef4fc;
+  --ink-dim: #b0c2d8;
+  --ink-faint: #8398b2;
+  --ink-ghost: #63788f;
+
+  /* ---- how far a de-emphasised thing recedes ----
+   *
+   * These were literals scattered across the graph nodes, and they compounded
+   * with the ink ramp: an unbuilt agent drew `--ink-dim` at 0.34 opacity, which
+   * on this ground is invisible. Recession must stay legible — an agent that
+   * exists only in the vault is *information*, not noise, and the Fleet view
+   * is mostly those today. */
+  --dim-out: 0.34;      /* filtered out of the current view */
+  --dim-unbuilt: 0.82;  /* specified, no module on disk — shape (dashed border,
+                           hollow dot, SPEC badge) carries the meaning, not fade */
+  --dim-unseen: 1;      /* built, never observed — the hollow status dot says so,
+                           opacity does not; a dimmed real agent read as absent */
 
   /* ---- the organism's own light ---- */
   --core: #3d8bff;
@@ -30,7 +61,7 @@
   --core-flare: #ffb765;
 
   /* ---- agent state (one machine, many renderings) ---- */
-  --state-idle: #3f5169;
+  --state-idle: #6b829e;      /* was #3f5169 — 2.24:1 on a panel, below the 3:1 floor for a state indicator */
   --state-working: #3d8bff;
   --state-blocked: #d9a441;
   --state-degraded: #d97a2b;
@@ -65,13 +96,51 @@
   --state-live: #ff3b30;         /* live trading. Unmistakable, by design. */
   --state-paper: #35c48a;
   --state-observe: #4aa3df;
-  --state-stale: #6b5a2e;
+  /* Stale must look degraded AND stay readable — it labels a number the
+   * operator has to decide about. #6b5a2e measured 2.71:1 on a panel, so the
+   * warning about an untrustworthy number was itself hard to read. */
+  --state-stale: #b3963f;
   --state-mock: #a48bff;
 
   /* ---- edges: three classes, three weights ---- */
   --edge-lineage: #3d8bff;
   --edge-memory: #45c4a0;
   --edge-event: #d9b45c;
+
+  /* ---- spacing: 2px base, because this is a terminal ----
+   *
+   * The canonical 4/8/16/24 scale is too coarse for 20px rows; a dense grid
+   * legitimately needs a 2px step. What is *not* legitimate is what was here
+   * — 3, 5, 7, 9, 11 and 13 px all in use across inline styles, which is not
+   * a dense scale, it is no scale. Every one of those is a decision nobody
+   * made.
+   *
+   * Anything laying out chrome uses these. Off-scale values inside a chart or
+   * a graph node are fine: those are drawings, not layout. */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 24px;
+  --s-8: 32px;
+
+  /* ---- elevation ----
+   *
+   * There was no shadow scale at all, and the consequence was visible on the
+   * one element that most needed it: the ⌘K palette floats over the entire
+   * surface with a 1px hairline and nothing else, so it read as *painted on*
+   * rather than *above*.
+   *
+   * Two parts each, per Refactoring UI: a tight dark shadow for the crisp
+   * edge, plus a larger diffuse one for atmosphere. Heavier than a light
+   * theme's would be — on a near-black ground a 0.05 alpha shadow is
+   * invisible, so these carry real opacity and lean on the ambient half. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 6px 16px -4px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.5), 0 16px 32px -8px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.55), 0 32px 64px -12px rgba(0, 0, 0, 0.7);
 
   /* ---- geometry ---- */
   --r-sm: 3px;
@@ -83,13 +152,54 @@
   --font-ui: ui-sans-serif, "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
 
-  --fs-micro: 9.5px;
-  --fs-tiny: 10.5px;
-  --fs-sm: 11.5px;
-  --fs-base: 13px;
-  --fs-lg: 16px;
-  --fs-xl: 22px;
-  --fs-hero: 34px;
+  /* ---- type: a modular scale, ~1.15x at the bottom and widening ----
+   *
+   * The previous ramp had four steps inside three pixels — 10.5 / 11.5 / 12.5
+   * / 13.5, each about 1.08x the one below. Four *names* for what the eye
+   * reads as one size, so nothing in the bottom of the scale could express
+   * hierarchy. Measured across the surface, `--fs-micro` had 83 call sites and
+   * `--fs-base` had 7: almost every word on screen was rendered at the
+   * smallest size available, which is the whole of "everything looks the
+   * same".
+   *
+   * Every step below is now perceptibly larger than the one under it. That is
+   * the entire requirement of a type scale, and the old one did not meet it. */
+  --fs-micro: 11px;    /* .label — captions, units, keycaps */
+  --fs-tiny: 12.5px;   /* secondary text inside a panel */
+  --fs-sm: 14.5px;     /* the workhorse: rows, fields, list items */
+  --fs-base: 17px;     /* primary body */
+  --fs-lg: 21px;       /* the number a panel exists to show */
+  --fs-xl: 27px;       /* page-level figures */
+  --fs-hero: 38px;
+}
+
+/* Light theme — operator preference, toggled in the banner. Overrides ground,
+ * ink and elevation only; accent/state/family hues are kept (they still read on
+ * a light ground). Placed before the live/halted blocks so those still win.
+ * ponytail: hand-tuned luminance inversion, not a contrast-audited palette like
+ * the dark ramp above — revisit if the WCAG pass is redone for light. */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg-void: #eef1f5;
+  --bg-deep: #f4f6f9;
+  --bg-panel: #ffffff;
+  --bg-raised: #f7f9fc;
+  --bg-inset: #e9edf2;
+  --hairline: #d2dae4;
+  --hairline-bright: #b3c0cf;
+
+  --ink: #16202e;
+  --ink-dim: #3c4a5c;
+  --ink-faint: #5a6b80;
+  --ink-ghost: #8494a6;
+
+  --spinal-dim: #d8efe6;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 2px 4px rgba(15, 23, 42, 0.08), 0 6px 16px -4px rgba(15, 23, 42, 0.12);
+  --shadow-lg: 0 4px 8px rgba(15, 23, 42, 0.1), 0 16px 32px -8px rgba(15, 23, 42, 0.16);
+  --shadow-xl: 0 8px 16px rgba(15, 23, 42, 0.12), 0 32px 64px -12px rgba(15, 23, 42, 0.2);
 }
 
 /* Live mode restyles the whole surface from one place — Dashboard §Design
@@ -115,7 +225,7 @@
   --motion-scale: 0;
 }
 :root[data-tier='degraded'] {
-  --ink: #9aa8b8;
+  --ink: #c3d0de;
 }
 
 @media (prefers-reduced-motion: reduce) {

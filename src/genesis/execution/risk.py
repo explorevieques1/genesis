@@ -62,6 +62,14 @@ class Proposal:
     order_type: Literal["market", "limit"]
     intent: Intent = "open"
     origin: str = "human"
+    #: What this order came from, when it came from something with an id: an
+    #: idea, a strategy run, an agent. Order And Fill Schema specifies
+    #: ``origin: {kind, ref}`` and the code used to keep only the kind, so an
+    #: order placed from an idea arrived at the ledger indistinguishable from
+    #: one typed by hand -- and `JournalEntry.idea` could never be filled.
+    #: Without this the question "how are the news ideas doing?" has no answer
+    #: that is not a person's memory.
+    origin_ref: str | None = None
     limit_price: Decimal | None = None
     stop_kind: Literal["fixed", "trail", "none"] = "none"
     #: Fixed stops: exactly one of offset (points from entry) or price.

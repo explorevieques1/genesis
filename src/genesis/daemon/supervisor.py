@@ -68,6 +68,12 @@ class Supervisor:
     def supervise(self, agent: Agent) -> None:
         self._records[agent.id] = SupervisionRecord(agent=agent)
 
+    def unsupervise(self, agent_id: str, grace_sec: float = 5.0) -> None:
+        """Stop an agent and forget it. A deleted workflow is not restarted."""
+        rec = self._records.pop(agent_id, None)
+        if rec is not None:
+            rec.agent.stop(grace_sec=grace_sec)
+
     def record(self, agent_id: str) -> SupervisionRecord | None:
         return self._records.get(agent_id)
 

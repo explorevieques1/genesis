@@ -23,7 +23,7 @@ import {
 import type { AgentFlowNode } from './nodes/AgentNode'
 import type { CoreFlowNode } from './nodes/CoreNode'
 import type { McpFlowNode, MemoryFlowNode, SpinalFlowNode } from './nodes/SystemNode'
-import type { FleetFlowEdge } from './edges/FleetEdges'
+import type { FleetFlowEdge, StructureFlowEdge } from './edges/FleetEdges'
 
 export type FleetNode = AgentFlowNode | CoreFlowNode | SpinalFlowNode | McpFlowNode | MemoryFlowNode
 
@@ -41,7 +41,7 @@ const AGENT_H = 44
  */
 function topologyNodes(showMcp: boolean, showMemory: boolean): LayoutInput[] {
   const out: LayoutInput[] = [
-    { id: ORCHESTRATOR_ID, group: 'core', family: 'core', width: 340, height: 340 },
+    { id: ORCHESTRATOR_ID, group: 'core', family: 'core', width: 200, height: 84 },
   ]
   for (const s of ROSTER) {
     const spinal = s.id === RISK_ENGINE_ID || s.id === KILL_SWITCH_ID
@@ -135,6 +135,10 @@ export interface FleetGraphOptions {
   mode: LayoutMode
   showMcp: boolean
   showMemory: boolean
+  /** The always-on topology skeleton — every agent to the orchestrator, MCP to
+   *  its anchor, memory to the core. Off by default only if the operator wants
+   *  a pure traffic view. */
+  showStructure: boolean
   /** Wall-clock ms, ticked by the render loop. Drives elapsed times and fades. */
   now: number
 }
@@ -212,7 +216,7 @@ function nodeSignature(n: FleetNode): string {
   }
 }
 
-export function useFleetGraph({ mode, showMcp, showMemory, now }: FleetGraphOptions) {
+export function useFleetGraph({ mode, showMcp, showMemory, showStructure, now }: FleetGraphOptions) {
   // The roster says what the organism should be; the daemon says what it is.
   // `build` comes from the daemon, so an agent that exists only in the vault
   // renders as absent rather than as a healthy idle one — see `api/fleet.ts`.
@@ -404,7 +408,41 @@ export function useFleetGraph({ mode, showMcp, showMemory, now }: FleetGraphOpti
     return out
   }, [liveEdges, tokens, visible, focus, filters.edgeKinds, now])
 
-  return { nodes, edges, positions, layoutSig, focus, visible }
+  const structureEdges = useMemo<StructureFlowEdge[]>(() => {
+    if (!showStructure) return []
+    const out: StructureFlowEdge[] = []
+    const link = (id: string, source: string, target: string, dimmed: boolean) =>
+      out.push({ id, source, target, type: 'structure', selectable: false, data: { dimmed } })
+
+    for (const s of AGENTS) {
+      if (!visible.has(s.id)) continue
+      link(`struct:${s.id}`, s.id, ORCHESTRATOR_ID, focus !== null && !focus.has(s.id))
+    }
+    if (showMcp) {
+      for (const m of MCP_SERVERS) {
+        const nid = `mcp:${m.id}`
+        const anchor = AGENTS.find((a) => a.tools?.some((t) => t.startsWith(m.id)))?.id
+          ?? (m.pathway === 'efferent' ? 'order-manager' : 'screener')
+        if (!visible.has(anchor)) continue
+        // Afferent edges point *into* the fleet, efferent point out. Direction
+        // is the whole information content of the edge, so it is a branch
+        // rather than an expression evaluated for its effect.
+        if (m.pathway === 'afferent') {
+          link(`struct:${nid}`, nid, anchor, focus !== null)
+        } else {
+          link(`struct:${nid}`, anchor, nid, focus !== null)
+        }
+      }
+    }
+    if (showMemory) {
+      for (const l of MEMORY_LAYERS) link(`struct:mem:${l.id}`, `mem:${l.id}`, ORCHESTRATOR_ID, focus !== null)
+    }
+    return out
+  }, [showStructure, showMcp, showMemory, visible, focus, AGENTS])
+
+  const allEdges = useMemo(() => [...structureEdges, ...edges], [structureEdges, edges])
+
+  return { nodes, edges: allEdges, positions, layoutSig, focus, visible }
 }
 
 interface FleetGraphToken {

@@ -172,6 +172,12 @@ class Risk(_Strict):
     max_daily_loss_pct: _Pct = Field(gt=0, le=100)
     max_correlated_exposure_pct: _Pct = Field(gt=0, le=100)
     symbol_allowlist: list[str]
+    #: Widen the allow-list beyond the futures roots above to the S&P 500 and
+    #: the core ETFs, from the snapshot `genesis universe refresh` writes.
+    #: Off by default: turning it on is a decision about what this desk trades,
+    #: and a safety control that grew by 500 symbols because of a default would
+    #: be the wrong kind of quiet.
+    equity_universe: bool = False
     session_window: SessionWindow
     prop_firm: PropFirm | None = None
     #: Futures limits (Open Questions §1: IBKR, CME futures). A percentage of

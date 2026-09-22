@@ -119,8 +119,8 @@ CAPABILITIES: tuple[Capability, ...] = (
         family="research",
         summary=(
             "Records the trader's own trade ideas, and turns the ideas on the "
-            "desk into a plan of action: ranked, sized by the risk gate, with "
-            "levels, what's in the way, and a brief saved to the notes."
+            "desk into a plan of action: ranked, sized by the risk gate, saved "
+            "as a brief."
         ),
         task_types=("idea.record", "plan.build"),
         args_hint=(

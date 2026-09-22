@@ -1,8 +1,8 @@
 ---
 title: Approval Modes
 tags: [architecture, risk]
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/execution/approval.py, src/genesis/execution/order_manager.py, tests/execution/test_approval.py]
 ---
 
 # Approval Modes
@@ -113,6 +113,27 @@ Note the last row: in `halt` you can still **reduce** risk, never add it.
 - A confirmation older than 60 s is rejected with a re-quote.
 - Loosening the mode from a voice command alone fails.
 - `halt` from any mode cancels all working orders in under 1 s.
+
+## Implementation (2026-09-14)
+
+`approval.mode` in config is the one source; `OrderManager.set_mode` writes it,
+refuses loosening unless the caller is the dashboard, and appends an audit line.
+
+- **confirm** — the trade panel's BUY returns the gate's answer and an approval;
+  the confirm bar must send back the contract and size it names, or redemption
+  fails. Approvals are HMAC-signed with a per-process key, single-use, 60 s,
+  bound to every field of the order.
+- **one-click = `auto-within-limits`**, for orders the trader places by hand on
+  paper. Switched on from the trade panel with an arm-then-fire toggle.
+  The "strategy has passed Paper To Live Promotion" condition applies to
+  strategy-origin orders; a human's own paper click has no strategy to promote.
+  Every other condition applies, and a failing health check (kill switch
+  process unreachable) demotes the order to confirm rather than dropping it.
+- **halt** — read from the kill switch's flag file every tick; only closing
+  orders pass. Leaving it is `/v1/exec/resume`, dashboard-only, requires a
+  passing reconciliation, and resumes into `confirm` if the mode was auto.
+
+Voice and the orchestrator have no route to any of this.
 
 ## Related
 

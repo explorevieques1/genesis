@@ -1,16 +1,20 @@
 // Spec: Genesis Markdown/60-UI/UI Stack.md §3 Layout — Dockview
 //
-// The dock. Panels a person can split, drag, float and close, arranged by a
-// named preset and remembered once they have moved anything.
+// The dock. Panels a person can split, drag, float, close and open again,
+// seeded once per category and theirs from then on.
 //
-// Two things make this more than a wrapper around Dockview:
+// Three things make this more than a wrapper around Dockview:
 //
-// **A preset is the default, not the state.** On first open a preset lays its
-// panels out from `presets.ts`. The moment a person drags a divider, Dockview's
-// serialised layout is saved against that preset id and used from then on. So
-// "Analysis" means *your* analysis layout after the first time you adjust it,
-// and "reset" is a real, discoverable action rather than something only a
-// cleared cache can do.
+// **A category is a workspace.** One dock per main category, its arrangement
+// saved under that category's id. There is no preset switcher any more: a
+// category opens seeded with its own modules the first time, and after that it
+// is whatever the operator built. "Charting" means *your* charting layout,
+// including the journal graph you pulled in beside the chart.
+//
+// **A seed is a first run, not a state.** `SEEDS` lays panels out once. The
+// moment anything is dragged or closed, Dockview's serialised layout is saved
+// against the page id and used from then on — geometry authored by a person,
+// recalled without being asked for.
 //
 // **A panel that throws does not take the page down.** Every panel is wrapped
 // in its own boundary. `UI Stack`'s governing constraint is that the UI failing
@@ -26,10 +30,10 @@ import { DockviewReact } from 'dockview-react'
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelProps } from 'dockview'
 import 'dockview/dist/styles/dockview.css'
 import { PanelBoundary } from '@/components/PanelBoundary'
+import type { PageId } from '@/shell/pages'
 import { PANEL_COMPONENTS } from './panels'
-import {
-  loadLayout, saveLayout, type PanelId, type Preset,
-} from './presets'
+import { setDockApi } from './dock'
+import { loadLayout, saveLayout, MODULE_BY_ID, SEEDS } from './modules'
 
 /**
  * Dockview's component map, with every panel wrapped once.
@@ -50,49 +54,53 @@ const COMPONENTS = Object.fromEntries(
   ]),
 )
 
-export function Workspace({ preset }: { preset: Preset }) {
+export function Workspace({ page }: { page: PageId }) {
   const apiRef = useRef<DockviewApi | null>(null)
-  // Which preset the live dock is showing. Compared against the prop so a
+  // Which category the live dock is showing. Compared against the prop so a
   // switch rebuilds, while an unrelated re-render does not.
-  const builtRef = useRef<string | null>(null)
+  const builtRef = useRef<PageId | null>(null)
 
-  const build = useCallback((api: DockviewApi, target: Preset) => {
+  const build = useCallback((api: DockviewApi, target: PageId) => {
     api.clear()
 
-    const saved = loadLayout(target.id)
+    const saved = loadLayout(target)
     if (saved) {
       try {
         api.fromJSON(saved as never)
-        builtRef.current = target.id
+        builtRef.current = target
         return
       } catch {
         // A layout saved by an older build can reference a panel that no
-        // longer exists. Falling through to the preset default is the right
-        // recovery -- better a standard arrangement than an empty dock.
+        // longer exists. Falling through to the seed is the right recovery --
+        // better a standard arrangement than an empty dock nobody asked for.
       }
     }
 
-    const placed = new Set<PanelId>()
-    for (const slot of target.panels) {
+    // Seeds name modules; the dock needs panel instance ids, because the same
+    // module may be placed more than once. Slots are keyed by module id within
+    // one seed, which is enough for `referencePanel` and costs no ceremony.
+    const placed = new Map<string, string>()
+    for (const slot of SEEDS[target]) {
+      const module = MODULE_BY_ID[slot.id]
+      const panelId = `${slot.id}#seed`
       const reference = slot.position?.referencePanel
+      const referenceId = reference ? placed.get(reference) : undefined
       api.addPanel({
-        id: slot.id,
+        id: panelId,
         component: slot.id,
-        title: slot.title,
-        position:
-          reference && placed.has(reference)
-            ? { referencePanel: reference, direction: slot.position?.direction ?? 'right' }
-            : undefined,
-        initialWidth: slot.size ? undefined : undefined,
+        title: module.title,
+        position: referenceId
+          ? { referencePanel: referenceId, direction: slot.position?.direction ?? 'right' }
+          : undefined,
       })
-      placed.add(slot.id)
+      placed.set(slot.id, panelId)
     }
 
     // Sizes are applied after every panel exists, because a fraction of the
     // container means nothing until the container has been divided.
-    for (const slot of target.panels) {
+    for (const slot of SEEDS[target]) {
       if (!slot.size) continue
-      const panel = api.getPanel(slot.id)
+      const panel = api.getPanel(placed.get(slot.id) ?? '')
       if (!panel) continue
       const horizontal = slot.position?.direction === 'left' || slot.position?.direction === 'right'
       if (horizontal) {
@@ -101,13 +109,16 @@ export function Workspace({ preset }: { preset: Preset }) {
         panel.api.setSize({ height: Math.round(api.height * slot.size) })
       }
     }
-    builtRef.current = target.id
+    builtRef.current = target
   }, [])
 
   const onReady = useCallback(
     (event: DockviewReadyEvent) => {
       apiRef.current = event.api
-      build(event.api, preset)
+      // Published so the command line can open a panel into this dock without
+      // being a child of it. See `dock.ts` -- it holds wiring, never state.
+      setDockApi(event.api)
+      build(event.api, page)
 
       // Persist on every structural change. Debounced, because dragging a
       // divider fires this continuously and serialising a layout on every
@@ -127,21 +138,26 @@ export function Workspace({ preset }: { preset: Preset }) {
       }
       event.api.onDidLayoutChange(persist)
     },
-    [build, preset],
+    [build, page],
   )
 
   useEffect(() => {
     const api = apiRef.current
-    if (api && builtRef.current !== preset.id) build(api, preset)
-  }, [preset, build])
+    if (api && builtRef.current !== page) build(api, page)
+  }, [page, build])
+
+  // Unregister on unmount, so a stale api cannot be handed panels that would
+  // land in a dock nobody is looking at.
+  useEffect(() => () => setDockApi(null), [])
 
   return (
     <DockviewReact
       components={COMPONENTS}
       onReady={onReady}
       className="dockview-theme-genesis"
-      // A dock with every panel closed is a dead page. Watermark says so and
-      // points at the reset control rather than leaving a blank rectangle.
+      // An empty dock is a legitimate state now -- "clear space" produces one
+      // deliberately. The watermark says how to fill it rather than implying
+      // something went wrong.
       watermarkComponent={Watermark}
     />
   )
@@ -153,9 +169,9 @@ function Watermark() {
       className="flex flex-col items-center justify-center h-full gap-1"
       style={{ color: 'var(--ink-ghost)' }}
     >
-      <div className="label">no panels open</div>
+      <div className="label">empty workspace</div>
       <div style={{ fontSize: 'var(--fs-tiny)' }}>
-        pick a workspace from the top bar, or reset this one
+        ⌘K, then a module code — CH chart, EV events, BM body map
       </div>
     </div>
   )

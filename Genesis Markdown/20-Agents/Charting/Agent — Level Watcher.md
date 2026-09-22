@@ -4,8 +4,8 @@ tags: [agent, charting]
 family: charting
 cadence: market-open, event
 tier: none
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/charting/level_watcher.py, src/genesis/charting/outcomes.py, tests/charting/test_agents.py]
 ---
 
 # 🎯 Agent — Level Watcher

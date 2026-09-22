@@ -151,6 +151,13 @@ class PlanInputs:
     allowlist: Callable[[], list[str]]
     configured: Callable[[], list[str]]
     max_contracts: Callable[[], int]
+    #: The futures roots inside that allow-list, so the plan can tell a
+    #: contract that needs a month from a share that does not. ``None`` means
+    #: "the whole allow-list is futures", which is what it was before equities
+    #: were on it — and is why this may not default to an empty list: that
+    #: would make `NQ` an equity and send it to a resolver that refuses bare
+    #: roots.
+    futures_roots: Callable[[], list[str]] | None = None
     size: Callable[[], Callable[[dict[str, Any]], dict[str, Any]] | None] = lambda: None
     #: Said on the plan when ``size`` gives nothing. The caller knows why --
     #: "the order path is off" and "the server is not running" are different
@@ -210,11 +217,21 @@ def default_inputs(config: Any, *, config_path: Any = None) -> PlanInputs:
         return upcoming(NewsStore(memory / "news.db"))
 
     return PlanInputs(
-        allowlist=lambda: list(envelope().symbol_allowlist),
+        # The same resolved universe the gate checks against. Two lists here
+        # would mean the plan calling an idea untradeable that the gate would
+        # have taken, or worse, the reverse.
+        allowlist=lambda: list(_universe(config).symbols),
+        futures_roots=lambda: list(envelope().symbol_allowlist),
         configured=lambda: [str(s.get("symbol_id", "")) for s in config.marketdata.live],
         max_contracts=lambda: int(envelope().max_contracts_per_symbol),
         size=size, account=account, lessons=lessons, events=events,
     )
+
+
+def _universe(config: Any) -> Any:
+    from genesis.marketdata.universe import load as load_universe
+
+    return load_universe(config)
 
 
 def _safe(fn: Callable[[], Any], default: Any, degraded: list[str], what: str) -> Any:
@@ -238,6 +255,7 @@ class SessionPlanAgent(Agent):
         plan = build_plan(
             live_ideas(self.store),
             allowlist=self.inputs.allowlist(),
+            futures_roots=self.inputs.futures_roots() if self.inputs.futures_roots else None,
             configured=self.inputs.configured(),
             max_contracts=self.inputs.max_contracts(),
             size=_safe(self.inputs.size, None, degraded, "the risk gate"),

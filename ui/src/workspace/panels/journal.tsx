@@ -14,6 +14,7 @@
 // `journal.db` does not exist until the journal agent has written to it, so the
 // common state of this page today is `Absent` — and it says so, with the path.
 
+import { useEffect, useState } from 'react'
 import { api, type GraphEdge, type GraphNode } from '@/api/client'
 import { useRead } from '@/api/useRead'
 import { useCapability } from '@/api/capabilities'
@@ -21,6 +22,7 @@ import { Absent, Empty, Loading, RequiresCapability } from '@/components/States'
 import { Caveats, Chip, Num, PanelBody, Section, Table } from '@/components/Primitives'
 import { ForceGraph } from '@/components/graph/ForceGraph'
 import { useWorkspace } from '@/workspace/context'
+import { revealPanel } from '@/workspace/dock'
 
 /**
  * Node colours by kind.
@@ -125,14 +127,18 @@ export function JournalEntriesPanel() {
           <PanelBody pad={0}>
             <Table
               rows={entries}
-              keyOf={(row, i) => `entry:${row.entry_id ?? i}`}
+              // `id` and `entry_ts`, as `/v1/journal/entries` returns them.
+              // This read `entry_id`/`opened_at`/`outcome`, which no response
+              // has ever carried: the date column was blank and selection
+              // keyed on undefined.
+              keyOf={(row, i) => `entry:${row.id ?? i}`}
               selectedKey={nodeId}
-              onSelect={(row) => select({ nodeId: `entry:${row.entry_id}` })}
+              onSelect={(row) => select({ nodeId: `entry:${row.id}` })}
               columns={[
                 {
                   key: 'when', header: 'opened', width: 84,
                   render: (row) => (
-                    <span className="num">{String(row.opened_at ?? '').slice(0, 10)}</span>
+                    <span className="num">{String(row.entry_ts ?? '').slice(0, 10)}</span>
                   ),
                 },
                 {
@@ -144,12 +150,15 @@ export function JournalEntriesPanel() {
                 {
                   key: 'outcome', header: 'outcome', width: 74,
                   render: (row) => {
-                    const outcome = String(row.outcome ?? '')
-                    return outcome ? (
-                      <Chip tone={outcome === 'WIN' ? 'good' : outcome === 'LOSS' ? 'bad' : 'neutral'}>
-                        {outcome}
-                      </Chip>
-                    ) : null
+                    // Derived, because the entry stores the arithmetic and not
+                    // a label: R above zero won, below lost, exactly zero is
+                    // scratch, and no R yet is a trade still open.
+                    const r = row.r_multiple as number | null | undefined
+                    if (r === null || r === undefined) return null
+                    const outcome = r > 0 ? 'WIN' : r < 0 ? 'LOSS' : 'SCRATCH'
+                    return (
+                      <Chip tone={r > 0 ? 'good' : r < 0 ? 'bad' : 'neutral'}>{outcome}</Chip>
+                    )
                   },
                 },
                 {
@@ -236,5 +245,198 @@ export function JournalPatternsPanel() {
         )
       }}
     </RequiresCapability>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * JD — the journal agents, by hand (Operating Model §1). Each button submits
+ * the same task the planner or a workflow would, to the daemon's bus, so the
+ * daemon's fully wired agent runs it. The Trade Journal has no button: it
+ * records a fill, and there is nothing to record without one.
+ */
+const RUNS: { label: string; agent: string; args?: Record<string, unknown> }[] = [
+  { label: 'Morning brief', agent: 'digest', args: { kind: 'morning' } },
+  { label: 'Evening recap', agent: 'digest', args: { kind: 'evening' } },
+  { label: 'Performance review', agent: 'performance-analyst', args: { days: 7 } },
+  { label: 'Mine insights', agent: 'insight-miner' },
+  { label: 'Health check', agent: 'watchdog' },
+  { label: 'Drift check', agent: 'drift' },
+]
+
+type Run = { label: string; state: string; text?: string; data?: unknown; reason?: string }
+
+export function JournalDeskPanel() {
+  const [run, setRun] = useState<Run | null>(null)
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const lessons = useRead(() => api.journalLessons(), [])
+
+  // ponytail: polls one task at 1s while it runs; switch to task events if the bus bridges them to the socket.
+  useEffect(() => {
+    if (!taskId) return
+    const timer = setInterval(async () => {
+      try {
+        const t = await api.journalTask(taskId)
+        if (!t.available) throw new Error(t.reason)
+        if (!['done', 'failed', 'cancelled', 'shed'].includes(t.state)) {
+          setRun((r) => (r ? { ...r, state: t.state } : r))
+          return
+        }
+        clearInterval(timer)
+        setTaskId(null)
+        setRun((r) => r && {
+          ...r, state: t.state,
+          text: String(t.result?.spoken_summary ?? ''),
+          data: t.result?.data,
+          reason: t.failure ? String(t.failure.reason ?? 'failed') : undefined,
+        })
+        if (t.state === 'done') lessons.reload()
+      } catch (err) {
+        clearInterval(timer)
+        setTaskId(null)
+        setRun((r) => r && { ...r, state: 'failed', reason: String((err as Error).message ?? err) })
+      }
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [taskId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function start(label: string, agent: string, args?: Record<string, unknown>) {
+    setRun({ label, state: 'submitting' })
+    try {
+      const { task } = await api.journalRun(agent, args)
+      if (!task) return setRun({ label, state: 'failed', reason: 'an identical task is already in flight' })
+      setRun({ label, state: 'pending' })
+      setTaskId(task)
+    } catch (err) {
+      setRun({ label, state: 'failed', reason: String((err as Error).message ?? err) })
+    }
+  }
+
+  return (
+    <PanelBody>
+      <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+        {RUNS.map((r) => (
+          <button key={r.label} className="btn" disabled={taskId !== null}
+            onClick={() => start(r.label, r.agent, r.args)}>
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      {run && (
+        <Section title={run.label} dense
+          actions={<Chip tone={run.state === 'done' ? 'good' : run.state === 'failed' ? 'bad' : 'neutral'}>{run.state}</Chip>}>
+          {run.reason && <Caveats items={[run.reason]} />}
+          {run.text && (
+            <div style={{ fontSize: 'var(--fs-tiny)', color: 'var(--ink-dim)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+              {run.text}
+            </div>
+          )}
+          {run.state === 'done' && run.data !== undefined && (
+            <details>
+              <summary className="label">data</summary>
+              <pre style={{ fontSize: 'var(--fs-tiny)', whiteSpace: 'pre-wrap' }}>{JSON.stringify(run.data, null, 2)}</pre>
+            </details>
+          )}
+        </Section>
+      )}
+
+      {lessons.state.status === 'loading' && <Loading rows={2} label="lessons" />}
+      {lessons.state.status !== 'loading' && lessons.state.status !== 'ready' && (
+        <Absent reason={lessons.state.reason} onRetry={lessons.reload} />
+      )}
+      {lessons.state.status === 'ready' && (
+        <>
+          <Section title={`Lessons · ${lessons.state.data.lessons.length}`} dense>
+            {lessons.state.data.lessons.length
+              ? lessons.state.data.lessons.map((l, i) => (
+                <div key={i} style={{ fontSize: 'var(--fs-tiny)', color: 'var(--ink-dim)' }}>
+                  <b style={{ color: 'var(--ink)' }}>{String(l.title ?? '')}</b> {String(l.finding ?? '')}
+                </div>
+              ))
+              : <span className="label">none yet — a lesson needs at least 20 observations</span>}
+          </Section>
+          <Section title={`Hypotheses · ${lessons.state.data.hypotheses.length}`} dense>
+            {lessons.state.data.hypotheses.map((h, i) => (
+              <div key={i} style={{ fontSize: 'var(--fs-tiny)', color: 'var(--ink-dim)' }}>
+                {String(h.finding ?? h.key ?? 'hypothesis')}
+              </div>
+            ))}
+          </Section>
+        </>
+      )}
+    </PanelBody>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * `JM` — the ranges of candles you marked, newest first.
+ *
+ * The one part of the journal a person authors. Picking one opens the chart on
+ * that series so the bars it was drawn over are back on screen; the zone
+ * itself is still a saved drawing there.
+ */
+export function JournalMarksPanel() {
+  const { select } = useWorkspace()
+  const { state, reload } = useRead(() => api.journalMarks(), [])
+
+  if (state.status === 'loading') return <Loading rows={4} label="marks" />
+  if (state.status !== 'ready') return <Absent reason={state.reason} onRetry={reload} />
+
+  const marks = state.data.marks
+  if (!marks.length) {
+    return (
+      <Empty hint="Draw a zone over the bars on CH, select it, and press journal — an entry, an exit, or an idea you did not take.">
+        nothing marked yet
+      </Empty>
+    )
+  }
+
+  return (
+    <PanelBody pad={0}>
+      <Table
+        rows={marks as unknown as Record<string, unknown>[]}
+        keyOf={(row) => String(row.id)}
+        onSelect={(row) => {
+          const detail = row.detail as { symbol: string; timeframe: string; series: string }
+          const [symbolId] = String(detail.series || '').split('|')
+          select({ symbolId: symbolId || detail.symbol, timeframe: detail.timeframe })
+          revealPanel('chart')
+        }}
+        columns={[
+          {
+            key: 'kind', header: '', width: 52,
+            render: (row) => (
+              <Chip tone={row.outcome === 'exit' ? 'warn' : row.outcome === 'entry' ? 'good' : 'neutral'}>
+                {String(row.outcome)}
+              </Chip>
+            ),
+          },
+          {
+            key: 'symbol', header: 'symbol', width: 66,
+            render: (row) => <span style={{ color: 'var(--ink)' }}>{String(row.subject)}</span>,
+          },
+          {
+            key: 'note', header: 'note',
+            render: (row) => {
+              const detail = row.detail as { note: string; entry_id: string }
+              return (
+                <span className="flex items-center gap-1" style={{ overflow: 'hidden' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail.note || '—'}</span>
+                  {detail.entry_id && <Chip tone="neutral">on a trade</Chip>}
+                </span>
+              )
+            },
+          },
+          {
+            key: 'at', header: 'marked', width: 84, align: 'right',
+            render: (row) => <span className="num">{String(row.at).slice(0, 10)}</span>,
+          },
+        ]}
+      />
+    </PanelBody>
   )
 }

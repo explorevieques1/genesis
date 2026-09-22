@@ -4,8 +4,8 @@ tags: [agent, execution, risk, core]
 family: execution
 cadence: event
 tier: none
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/execution/killswitch.py, src/genesis/execution/halt.py, ui/src/components/KillSwitch.tsx]
 ---
 
 # 🛑 Kill Switch
@@ -114,6 +114,40 @@ Leaving `halt` is deliberate and manual:
 
 Run these tests on every release. If the kill switch is broken, nothing else in
 Genesis is safe to run.
+
+## Implementation (2026-09-14)
+
+`python -m genesis.execution.killswitch` (or `genesis killswitch serve`;
+`genesis serve` starts one detached if none answers). Loopback HTTP on
+`execution.killswitch_port` (8766): `GET /health`, `POST /halt`,
+`POST /flatten`. Its own IBKR client id. The flag is
+`<execution.state_dir>/halt.json`, which the order manager reads every tick.
+
+Three facts measured against the paper gateway shaped it, and they change the
+design above:
+
+1. **Only the placing client may cancel an order** (IBKR 10147). So `halt`
+   raises the flag, lets the order manager cancel its own entries, and after
+   ~0.15–0.9 s checks the broker with a *fresh* request. Only if an entry is
+   still working (the daemon is wedged) does it escalate: note the stops,
+   global-cancel, re-place the stops under its own client id. Measured: healthy
+   daemon 225–300 ms; wedged daemon 1.4 s including re-verification.
+2. **IBKR cancels a whole OCA group when one member is cancelled.** Cancelling
+   a target took its stop down with it. So `halt` cancels **entries** and keeps
+   every exit order on an open position — targets as well as stops. This
+   deviates from "cancel all working orders except protective stops", on the
+   safe side: an exit can only reduce risk.
+3. **Another client's cancellations are not pushed** to this client, so its
+   cached open-order list goes stale. Every decision reads a fresh
+   `reqAllOpenOrders()` (≈5 ms).
+
+`flatten` global-cancels, closes every position at market (contracts qualified
+by id — a position's contract has no exchange), and verifies flat: 734–751 ms
+measured. Only the kill switch closes positions on a flatten; the order
+manager only cancels, so both can never sell.
+
+Not built: runaway detection, the voice trigger before intent classification,
+the desktop hotkey, spoken confirmation.
 
 ## Related
 

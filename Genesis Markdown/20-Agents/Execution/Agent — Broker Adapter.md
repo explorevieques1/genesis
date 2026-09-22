@@ -4,8 +4,8 @@ tags: [agent, execution, risk]
 family: execution
 cadence: event
 tier: none
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/execution/ibkr_broker.py, tests/execution/fake_broker.py]
 ---
 
 # 🔌 Agent — Broker Adapter
@@ -125,6 +125,17 @@ Direct broker SDK/API, wrapped by [[genesis-execution-mcp]]. No LLM
   whether the order exists — no duplicates in a 1000-iteration fuzz test.
 - Unsupported capabilities are declared, never silently emulated without the caller knowing.
 - Reconnect triggers reconciliation before any new order is accepted.
+
+## Implementation (2026-09-14)
+
+`IbkrBroker`: IB Gateway, its own connection with Read-Only off, fixed client
+id `execution.client_id`. Refuses any account whose id is not paper (`D…`),
+independently of `brokers.primary.mode` — two locks. Declares nothing it
+emulates: native brackets, trailing stops, what-if margin, PnL subscriptions.
+Order status maps to Order And Fill Schema states; fills are delivered with
+their commission. A blank TIF makes the gateway's order preset swallow a what-if
+(10349), so every order and what-if names its TIF. A bid or ask of zero or −1
+means "none" and is never averaged into a mid.
 
 ## Related
 

@@ -1,8 +1,8 @@
 ---
 title: Error Handling And Degradation
 tags: [architecture, risk]
-status: building
-implemented_by: [src/genesis/errors.py, src/genesis/bus/bus.py]
+status: built
+implemented_by: [src/genesis/errors.py, src/genesis/bus/bus.py, ui/src/components/SurfaceBoundary.tsx]
 ---
 
 # Error Handling And Degradation

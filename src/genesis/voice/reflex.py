@@ -133,13 +133,20 @@ def match_reflex(text: str, *, wake_word: str = "genesis") -> ReflexMatch | None
 
     Two matching rules, and the asymmetry between them is the safety argument:
 
-    * :attr:`Reflex.STOP` matches as a **whole word anywhere**, with or without
-      the wake word. You will say "stop" while it is talking over you, and
-      requiring "Genesis, stop" there would make the barge-in useless.
+    * :attr:`Reflex.STOP` fires with or without the wake word -- you will say
+      "stop" while it is talking over you, and requiring "Genesis, stop" there
+      would make the barge-in useless -- but **always** as a bare command, never
+      as a word inside a sentence. Addressing Genesis does not change that:
+      *"Genesis, what's the stop on NVDA"* and *"Genesis, cancel my three
+      o'clock"* are requests, and answering them is the correct behaviour.
+      Treating them as an interrupt swallows the request entirely and the
+      operator gets silence.
     * Everything else requires the **wake word in the utterance**. "Halt" is a
       word that occurs in ordinary speech about markets ("the halt was
       lifted"), and a kill switch that fires on overheard conversation is worse
-      than one that occasionally needs repeating.
+      than one that occasionally needs repeating. These match anywhere in the
+      sentence, because "Genesis, halt everything" and "flatten everything,
+      Genesis" must both work.
 
     Matching is substring-on-word-boundary, so wake position does not matter --
     Voice Stack requires *"Give me the semis setup, Genesis"* to work, and the
@@ -154,13 +161,21 @@ def match_reflex(text: str, *, wake_word: str = "genesis") -> ReflexMatch | None
     addressed = _contains_phrase(norm, wake) if wake else False
 
     words = norm.split()
+    # The stop family is judged on the utterance with the wake word removed, so
+    # that "Genesis, stop" is still a bare command while "Genesis, what's the
+    # stop on NVDA" is not.
+    bare_words = [w for w in words if w != wake] if wake else words
+
     for reflex, phrases in _TABLE:
         for phrase in phrases:
             if not _contains_phrase(norm, phrase):
                 continue
+            if reflex is Reflex.STOP:
+                # Bare-command only, addressed or not. See the docstring.
+                if _is_bare_command(bare_words, phrase):
+                    return ReflexMatch(reflex, phrase)
+                continue
             if addressed:
-                return ReflexMatch(reflex, phrase)
-            if reflex is Reflex.STOP and _is_bare_command(words, phrase):
                 return ReflexMatch(reflex, phrase)
     return None
 
@@ -176,11 +191,23 @@ def _is_bare_command(words: list[str], phrase: str) -> bool:
     The discriminator is that a command is short and leads with the word. You
     do not preface an interrupt; you say it. Anything longer is speech *about*
     stopping, which is a thing traders say all day.
+
+    Repetition is the exception, and it is the opposite of an edge case: "stop
+    stop stop" is what people actually say when something will not shut up, and
+    it is *more* emphatic than a single "stop", not less. Under the length rule
+    alone it failed, which is the worst possible place for this function to be
+    strict.
     """
     phrase_words = phrase.split()
-    if len(words) > len(phrase_words) + 1:
+    if words[: len(phrase_words)] != phrase_words:
         return False
-    return words[: len(phrase_words)] == phrase_words
+    if len(words) <= len(phrase_words) + 1:
+        return True
+    # "stop stop stop" -- the same command, said harder.
+    return all(
+        words[i : i + len(phrase_words)] == phrase_words
+        for i in range(0, len(words) - len(phrase_words) + 1, len(phrase_words))
+    ) and len(words) % len(phrase_words) == 0
 
 
 def _contains_phrase(haystack: str, needle: str) -> bool:

@@ -1,8 +1,8 @@
 ---
 title: Trade Ledger
 tags: [memory, risk]
-status: building
-implemented_by: [src/genesis/memory/ledger.py, tests/memory/test_ledger.py, tests/crash/test_ledger_durability.py]
+status: built
+implemented_by: [src/genesis/memory/ledger.py, tests/memory/test_ledger.py, tests/crash/test_ledger_durability.py, tests/crash/helpers.py, tests/crash/ledger_writer.py]
 ---
 
 # Trade Ledger
@@ -110,6 +110,15 @@ fill is queryable ([[Episodic Log]], [[Observability]]).
 - A fill without a valid `approval_id` triggers a critical alert.
 - Seeded reconciliation mismatch halts the system within 5 s.
 - No `float` appears in any monetary field, enforced by a type test.
+
+## Phase 7 additions (2026-09-14)
+
+`order_events` (append-only, triggers as for `orders`), order columns for
+brackets and contracts ([[Order And Fill Schema]]), `record_order`,
+`record_order_event`, `record_reconciliation`. `equity_snapshots` now holds the
+session-open net liquidation the risk engine's daily P&L fallback reads.
+Known gap: realized P&L in `rebuild_positions` is in price points × contracts,
+without the futures multiplier; displayed P&L comes from IBKR.
 
 ## Related
 

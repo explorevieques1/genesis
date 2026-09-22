@@ -239,13 +239,13 @@ def backtest_routes(bus: Any = None) -> list[Any]:
 # ---------------------------------------------------------------------------
 
 def _load_bars(symbol_id: str, timeframe: str) -> list[Any]:
-    from genesis.marketdata.store import BarStore
+    from genesis.config import load_config
+    from genesis.marketdata.store import open_store
 
-    store = BarStore(read_only=True)
-    try:
-        return store.read(symbol_id, timeframe)
-    finally:
-        store.close()
+    # Shared handle: no close in a finally, because closing it would take the
+    # store out from under every other route in this process.
+    store = open_store(load_config().marketdata.store_path, read_only=True)
+    return store.read(symbol_id, timeframe)
 
 
 async def _resolve_symbol(symbol: str, timeframe: str) -> str | None:
@@ -269,13 +269,11 @@ async def _resolve_symbol(symbol: str, timeframe: str) -> str | None:
 
 
 def _all_symbols() -> list[tuple[str, str, int]]:
-    from genesis.marketdata.store import BarStore
+    from genesis.config import load_config
+    from genesis.marketdata.store import open_store
 
-    store = BarStore(read_only=True)
-    try:
-        return store.symbols()
-    finally:
-        store.close()
+    store = open_store(load_config().marketdata.store_path, read_only=True)
+    return store.symbols()
 
 
 def _store_run(run: Any, prompt: str | None) -> str:

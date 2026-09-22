@@ -1,0 +1,2 @@
+- When opening the regime notes in the Journal tab the +Note and +Folder open under neath the actual files when they already exist above the search bar. 
+- Measure results format is poor and without a format. Id like the output to be something better to read instead of the raw data look.

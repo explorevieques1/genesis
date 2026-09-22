@@ -28,14 +28,19 @@ def recorder(log: EpisodicLog) -> VoiceRecorder:
 # -- privacy ------------------------------------------------------------------
 
 
-def test_ambient_speech_is_counted_never_quoted(recorder: VoiceRecorder, log: EpisodicLog) -> None:
-    """The wake gate keeps un-addressed audio off the network. Writing its
-    transcript to disk would give that most of its value away."""
-    recorder.on_turn(Turn(heard="I think semis are extended here", intent="ambient"))
-    entry = log.by_kind("voice.ambient")[0]
-    assert entry.payload["words"] == 6
-    assert "semis" not in str(entry.payload)
-    assert "semis" not in (entry.summary or "")
+def test_ambient_speech_produces_zero_disk_writes(recorder: VoiceRecorder, log: EpisodicLog) -> None:
+    """Working Memory's acceptance criterion, literally: *"ambient conversation
+    for 10 minutes produces zero actions and zero disk writes."*
+
+    Not "no transcript" — nothing. A per-utterance word count with a timestamp
+    is not content, but it is a conversation's cadence, and that sits badly
+    beside the wake-gate privacy line.
+    """
+    before = log.count()
+    for _ in range(10):
+        recorder.on_turn(Turn(heard="I think semis are extended here", intent="ambient"))
+    assert log.count() == before
+    assert recorder.ambient_heard == 10  # counted in memory, for the dashboard
 
 
 def test_a_directed_turn_is_recorded_in_full(recorder: VoiceRecorder, log: EpisodicLog) -> None:

@@ -34,7 +34,8 @@ A small animated presence: idle, listening, thinking, speaking, alert. Optional 
 switchable off, but it does real work — it makes the difference between "is it
 listening?" and knowing it is.
 
-Pattern: [[Repo — jarvis]] `desktop_app/face_widget.py`.
+Specified in full in [[Genesis Core]] — five states, shared with the tray icon and
+[[Voice UX]]'s earcons. Pattern: [[Repo — jarvis]] `desktop_app/face_widget.py`.
 
 ### Global hotkeys
 
@@ -90,5 +91,5 @@ position unmanaged.
 
 ## Related
 
-[[Dashboard]] · [[Voice UX]] · [[Config And Secrets]] · [[Kill Switch]] ·
-[[Repo — jarvis]]
+[[Dashboard]] · [[UI Stack]] · [[Genesis Core]] · [[Voice UX]] ·
+[[Config And Secrets]] · [[Kill Switch]] · [[Repo — jarvis]]

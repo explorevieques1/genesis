@@ -32,6 +32,24 @@ export interface WorkspaceSelection {
   nodeId: string | null
   /** A ticker the research page is looking up. */
   ticker: string | null
+  /**
+   * A symbol the watchlist put on the TradingView panel.
+   *
+   * Separate from `symbolId` because a watchlist reaches symbols Genesis holds
+   * no bars for — `EQ:XNAS:AAPL` is the store's id, `NASDAQ:AAPL` or a bare
+   * `GME` is what TradingView's own feed wants. `CH` follows `symbolId`; `TV`
+   * follows this when it is set.
+   */
+  tvSymbol: string | null
+  /**
+   * The note `NOT` is showing, vault-relative — and the focus of `NOD`.
+   *
+   * One value, two panels, both directions: clicking a dot in the graph opens
+   * the note, opening a note moves the graph's focus. That is the whole of
+   * what the two modules share, and it belongs here for the reason above —
+   * losing it costs a click, not a fact.
+   */
+  notePath: string | null
 }
 
 interface WorkspaceValue extends WorkspaceSelection {
@@ -49,6 +67,21 @@ interface WorkspaceValue extends WorkspaceSelection {
   setRun: (run: Record<string, unknown> | null) => void
 }
 
+/**
+ * The page's symbol link group: one pick, every symbol panel follows.
+ *
+ * `SCR`, `WL`, `HM`, `CO` and `TV` all publish through this, so a click in any
+ * of them lands in the others — `TV` reads `tvSymbol`, `CO` reads the bare
+ * `ticker`. `CH` is deliberately not in it: it holds bars for few of these.
+ *
+ * ponytail: one unnamed page-wide group. Named groups + the 🔗 chip
+ * ([[Terminal]] §Symbol linking) when two charts must follow different lists.
+ */
+export function symbolLink(symbol: string): Pick<WorkspaceSelection, 'ticker' | 'tvSymbol'> {
+  const tv = symbol.trim().toUpperCase()
+  return { tvSymbol: tv || null, ticker: tv.split(':').pop() || null }
+}
+
 const Ctx = createContext<WorkspaceValue | null>(null)
 
 export function WorkspaceProvider({
@@ -64,6 +97,8 @@ export function WorkspaceProvider({
     runId: null,
     nodeId: null,
     ticker: null,
+    tvSymbol: null,
+    notePath: null,
     ...initial,
   })
   const [run, setRun] = useState<Record<string, unknown> | null>(null)

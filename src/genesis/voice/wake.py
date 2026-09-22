@@ -120,11 +120,21 @@ class LocalWhisperWake:
         text = self.transcribe(pcm, sample_rate)
         if not text:
             return None
-        norm = normalise(text)
-        tokens = set(norm.split())
-        if tokens & set(self.aliases):
+        if self.heard_wake(text):
             return WakeHit(text=text, latency_ms=(time.monotonic() - start) * 1000)
         return None
+
+    def heard_wake(self, text: str) -> bool:
+        """Whether this transcript was addressed to us.
+
+        Split out from :meth:`detect` so :meth:`WakeGate.examine` can reuse the
+        *decision* without paying for a second transcription -- on a CPU each
+        pass costs about a second. A detector with smarter matching (homophones,
+        fuzzy tokens) overrides this one method and both paths follow it, which
+        was not true when the gate inlined its own alias check.
+        """
+        tokens = set(normalise(text).split())
+        return bool(tokens & set(self.aliases))
 
 
 class WakeGate:
@@ -162,11 +172,18 @@ class WakeGate:
         if transcribe is None:
             return self.offer(pcm), ""
         text = transcribe(pcm, self._sample_rate)
-        import time
 
-        norm = normalise(text)
-        aliases = set(getattr(detector, "aliases", ()))
-        if norm and (set(norm.split()) & aliases):
+        heard_wake = getattr(detector, "heard_wake", None)
+        if heard_wake is not None:
+            addressed = bool(text) and heard_wake(text)
+        else:
+            # A detector that predates the hook. Fall back to the alias check
+            # rather than transcribing a second time to call `detect`.
+            aliases = set(getattr(detector, "aliases", ()))
+            norm = normalise(text)
+            addressed = bool(norm) and bool(set(norm.split()) & aliases)
+
+        if addressed:
             with self._lock:
                 self._held = pcm
                 self._hit = WakeHit(text=text, latency_ms=0.0)

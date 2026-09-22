@@ -1,14 +1,25 @@
 ---
 title: Dashboard
 tags: [ui]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [ui/src/App.tsx, ui/src/components/SafetyFloor.tsx, ui/src/components/KillSwitch.tsx, ui/src/components/EventStream.tsx, ui/src/components/SystemHealth.tsx, ui/src/shell/CommandBar.tsx, ui/src/shell/TopBar.tsx, ui/src/shell/pages.ts, ui/src/store/useGenesis.ts]
 ---
 
 # 🖥️ Dashboard
 
-The visual surface. Voice is primary; the dashboard is where detail lives, where you
-approve trades, and where you watch the fleet work.
+The visual surface: where detail lives, where you approve trades, and where you
+watch the fleet work.
+
+> [!important] The dashboard is a *destination*, not the landing screen
+> [[Operating Model]] §3 — **the canvas opens empty.** Nothing below appears on
+> launch. Every panel here is something the trader asked for, by typing or by
+> speaking, or something Genesis opened while answering a request — and in the
+> second case the panel says which request opened it.
+>
+> This note used to open *"voice is primary; the dashboard is where detail
+> lives"*. Voice is a **peer input**, not the door ([[Terminal]]): the typed
+> sentence and the spoken one reach the same command table and the same
+> orchestrator behind it. Unplugging the microphone removes no capability.
 
 Lineage: [[Repo — gensis-agents]] `orchestrator/` (agent grid, activity feed, process
 control) and [[Repo — Gensis Terminal Official]] (widget grid, Electron shell).
@@ -16,6 +27,10 @@ control) and [[Repo — Gensis Terminal Official]] (widget grid, Electron shell)
 ## Panels
 
 ### Agent grid
+The static roster — *is everything healthy?* — readable in one glance. [[Fleet View]]
+answers the other question, *what is happening and because of what?*, as a live
+graph. Both exist; they share one state vocabulary.
+
 Live status card per agent: `idle` / `working` / `blocked` / `degraded` / `down`,
 last action in plain English, next scheduled run, today's cost. Start / stop /
 restart per agent.
@@ -79,6 +94,25 @@ Browse the [[Knowledge Graph]], journal, lessons, and beliefs. Pattern:
 Persistent, always visible, never behind a menu. Direct HTTP to the kill-switch
 process — not through the task bus ([[Kill Switch]]).
 
+## Every panel names its work
+
+The differentiator against a terminal that merely *presents* data
+([[Operating Model]] §1). Each panel carries, in its own chrome:
+
+- **What produced it** — the agent or tool, by name, linked to its trace
+- **As of when**, and whether that is live or stale
+- **Why it is open** — the request that caused it, when Genesis opened it
+- **Pin / dismiss.** Pinned panels survive the next question; unpinned ones are
+  the working set for the question being asked
+
+A panel that cannot answer *"who computed this and from what?"* is a Bloomberg
+panel with a Genesis border on it.
+
+Panels also **publish what they are showing** so the orchestrator can read the
+open workspace instead of re-fetching the world ([[Operating Model]] §5). That
+is the capability existing terminals do not have, and it is not a model problem
+— their panels simply do not publish.
+
 ## Design principles
 
 - **Glanceable.** The three numbers that matter — portfolio heat, daily loss
@@ -87,6 +121,10 @@ process — not through the task bus ([[Kill Switch]]).
 - **Degraded data looks degraded.** A stale P&L is visually distinct from a fresh
   one, never presented as confident ([[Error Handling And Degradation]]).
 - **Dark theme**, matching the [[Charting Engine]] renders.
+- **The safety floor is plain DOM.** Heat, daily-loss headroom, approval mode and the
+  [[Kill Switch]] never depend on WebGL, canvas, or a live socket ([[UI Stack]] §6).
+  Collapsed to one line while those numbers are em dashes; full readout in
+  `Settings → Approval`, and it returns to the chrome in Phase 7.
 - **No modal blocking.** The market doesn't wait for a dialog.
 - **Everything links back.** Every number traces to the log entry that produced it.
 
@@ -108,5 +146,6 @@ a browser refresh loses nothing.
 
 ## Related
 
-[[Voice UX]] · [[Desktop Shell]] · [[Widget Catalog]] · [[Task Bus]] ·
-[[Approval Modes]] · [[Kill Switch]] · [[Repo — gensis-agents]]
+[[UI Stack]] · [[Fleet View]] · [[Genesis Core]] · [[Voice UX]] · [[Desktop Shell]] ·
+[[Widget Catalog]] · [[Task Bus]] · [[Approval Modes]] · [[Kill Switch]] ·
+[[Repo — gensis-agents]]

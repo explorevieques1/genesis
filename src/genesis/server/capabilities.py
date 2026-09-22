@@ -84,6 +84,29 @@ def _file(path: str, *, describe: str) -> Callable[[], tuple[bool, str]]:
     return probe
 
 
+def _vault_present() -> tuple[bool, str]:
+    """The notebook is "built" when a vault directory exists with notes in it.
+
+    Path from config, not the hardcoded `~/.genesis/` the older probes use --
+    a vault the operator moved is still their vault, and a probe that looks in
+    the wrong place reports an organ missing that is sitting right there.
+
+    An existing but empty directory is `True` with a count of zero: unlike a
+    database, an empty vault is the normal first state of a working notebook,
+    not evidence that anything is absent.
+    """
+    try:
+        from genesis.config import load_config
+        from genesis.notebook.vault import Vault
+
+        vault = Vault(load_config().memory.vault_path)
+        if not vault.exists:
+            return False, f"no vault directory yet ({vault.root})"
+        return True, f"{vault.root} ({sum(1 for _ in vault.walk()):,} notes)"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{type(exc).__name__}: {exc}"
+
+
 def _bars_present() -> tuple[bool, str]:
     """Market data is "built" only if there are bars, not just a schema.
 
@@ -92,13 +115,11 @@ def _bars_present() -> tuple[bool, str]:
     say "no data yet" or draw.
     """
     try:
-        from genesis.marketdata.store import BarStore
+        from genesis.config import load_config
+        from genesis.marketdata.store import open_store
 
-        store = BarStore(read_only=True)
-        try:
-            rows = store.symbols()
-        finally:
-            store.close()
+        store = open_store(load_config().marketdata.store_path, read_only=True)
+        rows = store.symbols()
     except Exception as exc:  # noqa: BLE001
         return False, f"{type(exc).__name__}: {exc}"
     if not rows:
@@ -176,6 +197,10 @@ CAPABILITIES: tuple[Capability, ...] = (
         _file("~/.genesis/memory/journal.db", describe="journal database"),
     ),
     Capability(
+        "notebook.vault", "Notebook", "journal",
+        "60-UI/Notebook.md", _vault_present,
+    ),
+    Capability(
         "journal.patterns", "Behavioural patterns", "journal",
         "20-Agents/Journal/Agent — Insight Miner.md",
         _importable("genesis.journal.patterns", "detect_all"),
@@ -248,9 +273,27 @@ CAPABILITIES: tuple[Capability, ...] = (
         _importable("genesis.automation.workflow"),
     ),
     Capability(
+        "research.directory", "Research directory", "research",
+        "20-Agents/Research/Research Family.md",
+        _importable("genesis.research.store", "ResearchStore"),
+    ),
+    Capability(
+        "research.agents", "Research family", "research",
+        "20-Agents/Research/Research Family.md",
+        _importable("genesis.agents.research.fleet", "build_fleet"),
+    ),
+    Capability(
+        "memory.graph", "Knowledge graph", "memory",
+        "40-Memory/Knowledge Graph.md",
+        _importable("genesis.memory.graph", "KnowledgeGraph"),
+    ),
+    Capability(
         "research.canvas", "Research canvas", "research",
         "60-UI/Research Canvas.md",
-        _importable("genesis.research.canvas"),
+        # The store, not the renderer. Research Canvas.md: a canvas whose nodes
+        # exist only in a browser is invisible to the agent meant to use it, so
+        # "built" means the daemon can read and write it.
+        _importable("genesis.research.canvas", "CanvasStore"),
     ),
 )
 

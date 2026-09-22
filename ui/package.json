@@ -8,8 +8,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit false --pretty",
-    "lint": "eslint src --ext .ts,.tsx"
+    "typecheck": "tsc -b --pretty",
+    "lint": "eslint src --ext .ts,.tsx",
+    "check:charts": "node src/components/charts/drawings.check.ts",
+    "check:automation": "node src/components/automation/wiring.check.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.3.5",

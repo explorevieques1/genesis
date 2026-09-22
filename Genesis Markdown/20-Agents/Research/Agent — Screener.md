@@ -4,8 +4,8 @@ tags: [agent, research]
 family: research
 cadence: market-open
 tier: small
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/screener/snapshot.py, src/genesis/screener/scan.py, src/genesis/screener/chat.py, src/genesis/agents/research/screener.py, src/genesis/screener/__init__.py, tests/test_screener.py]
 ---
 
 # 🔎 Agent — Screener
@@ -16,6 +16,60 @@ Mechanical candidate generation. Runs saved scans across the universe and return
 symbols that meet a condition **right now**. It does not rank, does not form a
 thesis, does not decide. That separation is deliberate — it keeps the scan fast,
 cheap, deterministic, and testable.
+
+## Built first: the fundamentals screener (2026-09-14)
+
+The technical scans below are still spec. What exists is a **fundamentals screen
+over the S&P 500**, driven by conversation — decided with the operator, and it
+settles [[Open Questions]] §8 for this agent.
+
+- **Universe** — SPY's daily holdings file (same source as [[Index Movers]]),
+  sectors from which sector SPDR holds the name. Never model memory.
+- **Snapshot** — `screener.db` beside the other stores: one row per member from
+  yfinance `.info`, rebuilt by the `screener` agent (tier none, `market-closed`,
+  daily) or `scr refresh`. ~20 s for 503 names. Replaced only when ≥90% of members
+  come back, otherwise yesterday's stays.
+- **Units** are normalised at the snapshot: ratios in percent, sizes in $B.
+  yfinance mixes fractions and percents; the model and a typed scan must mean the
+  same thing by "10".
+- **Fields** — a closed catalogue (`snapshot.FIELDS`): valuation (P/E trailing and
+  forward, PEG, P/B, P/S, EV/EBITDA), EPS, revenue, growth, margins, ROE/ROA,
+  debt/equity, current ratio, FCF and FCF yield, dividend yield and payout, beta,
+  52-week change and distance from high, short interest, institutional ownership,
+  analyst rating and target upside; text fields sector, industry, name.
+- **Scan** — `{criteria: [{field, op, value}], sort, limit}`, validated against the
+  catalogue. Unknown field, operator or sector is refused with the reason. **An
+  absent value never passes** and is counted in the result. A snapshot older than
+  80 h is `degraded`.
+
+### Conversation
+
+The small tier's only job is interpretation. Given the message, the previous
+scans in the Ask Genesis conversation, and the catalogue, it returns one JSON
+object: `understood` (the idea behind the words), `scan`, `readings` (how each
+vague word was read — "cheap → pe_forward < 15"), `unsupported` (what no field can
+express, with the reason), and at most one `question` with tap-to-send `choices`.
+Code runs the scan; the model never sees rows or names results.
+
+- Refinements edit the previous scan ("only tech", "loosen P/E to 25").
+- A proposed scan that fails validation gets **one** repair call with the error,
+  then fails as degraded — never repaired by guessing.
+- Zero matches or more than 40 adds a deterministic honing question.
+- `not_screen` hands the sentence to the analyst ladder.
+- Routing: the command table's `screen` entry catches "find/which … stocks|companies",
+  "screen", "scan" and `scr`. Inside an Ask Genesis conversation, an unmatched
+  sentence following a `screen.*` reply stays with the screener; any other table
+  command ends the thread.
+
+**Current screen:** every result is saved as the one current screen and the
+interpreter is always shown it, so "refine the current screen: …" edits it with
+or without chat history, and a hand edit in [[Screener|SCR]] is what the next
+message refines. A different idea replaces it.
+
+**Parity:** `scr pe_forward<15 revenue_growth>10 sector=technology sort:-roe top:20`
+builds the same scan with no model (`~` contains, `!=` excludes, `=a,b` is *in*,
+`=lo..hi` is *between*). `scan.terms()` writes any scan back out in this grammar. With no small tier this is
+the whole screener, and the reply says so.
 
 ## Cadence
 
@@ -112,4 +166,4 @@ queue the same scan four times.
 ## Related
 
 [[Agent — Idea Synthesizer]] · [[Agent — Chart Markup]] · [[Agent — Strategy Author]] ·
-[[Research Family]] · [[Trading Corpus Index]]
+[[Research Family]] · [[Screener]] · [[Trading Corpus Index]]

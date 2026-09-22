@@ -6,11 +6,14 @@ cadence: market-closed, on-demand
 tier: none
 status: building
 implemented_by:
-  - src/genesis/backtest/strategy.py
-  - src/genesis/backtest/spec_strategy.py
+  - src/genesis/backtest/__init__.py
   - src/genesis/backtest/runner.py
+  - src/genesis/backtest/spec_strategy.py
   - src/genesis/backtest/store.py
+  - ui/src/workspace/panels/backtest.tsx
+  - tests/backtest/test_nautilus_runner.py
   - src/genesis/server/backtest_routes.py
+  - src/genesis/backtest/strategy.py
 ---
 
 # ⏮️ Agent — Backtest Runner

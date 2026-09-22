@@ -1,6 +1,8 @@
 ---
 title: Conventions
 tags: [meta]
+status: built
+implemented_by: [evals/__init__.py, evals/conftest.py, evals/helpers.py, evals/test_scaffold.py, src/genesis/dna/__init__.py, src/genesis/dna/drift.py, src/genesis/dna/genome.py, src/genesis/dna/prompts.py, ui/src/workspace/panels/dna.tsx, scripts/check_body_map.py, tests/dna/test_drift.py, tests/dna/test_genome.py]
 ---
 
 # Conventions
@@ -32,7 +34,44 @@ implemented_by: [src/genesis/agents/screener.py]
 
 Both sides move together, in the same commit. This is what keeps the vault a
 build tracker instead of a museum — see [[Working With Claude Code]]. Run
-`python3 scripts/build_vault_map.py` after either side changes.
+`genesis dna map` after either side changes.
+
+## The genome
+
+The two halves of that pointer are the only reason drift is detectable at all,
+so they have an organ: `DNA` on the map in [[Biological Design]], and
+`src/genesis/dna/` behind it. One reading of the vault, used by the `DNA`
+module, `genesis dna`, `genesis biology` and both pre-commit scripts — four
+parsers of one body map is how the readings disagree.
+
+```bash
+genesis dna                  # how much of the genome is expressed, by status
+genesis dna check [--fix]    # the six kinds of drift between spec and code
+genesis dna show "Risk Envelope"   # one note: its code, and what points at it
+genesis dna prompts          # the other half — every system prompt, sized
+genesis dna map              # regenerate [[Vault Map]]
+```
+
+Six kinds of drift, each silent without the check: a **cut forward nerve**
+(code points at a note that does not point back), a **phantom limb**
+(`implemented_by:` names a file that is gone), a **stale status**, a
+**dangling pointer** (code names a note that does not exist), a **doubled
+nerve** (two `implemented_by:` keys — YAML keeps the last and the first list
+silently stops existing), and **broken frontmatter** (`---` opens and never
+closes, so every reader skips the note; [[Workspaces]] was in this state and
+four tools skipped it in silence).
+
+`--fix` writes only what the code already proves, and never invents `built` —
+"done" is a human judgement. Nothing repairs on a schedule: an automatic
+repair running unattended will eventually paper over the one drift that
+mattered.
+
+> [!important] The genome is read-only at runtime
+> Nothing in `genesis.dna` is wired to the daemon, no agent holds a capability
+> that reaches it, and there is no write path to a note or a prompt anywhere in
+> Genesis. Weights are frozen and so is the spec. An organism that can edit its
+> own genome can edit [[Safety Invariants]], and then every reflex in the
+> system is a suggestion. The germ line is git; the editor is a person.
 
 ## Logging
 

@@ -17,8 +17,28 @@
 //     reads as confident, so past the threshold it is struck through and labelled.
 //   - No UI-side risk logic. Not a preview, not a "likely to be rejected" hint.
 //     The verdict comes from the Pre-Trade Risk Engine or it is not shown.
+//
+// **Collapsed by default — 2026-09-06.**
+//
+// Five cells, ~60px of permanent chrome, showing an em dash in four of them,
+// because there is no broker, no position and no reconciliation in this phase.
+// Operating Model §3 says nothing is on screen that was not asked for, and a
+// row of placeholders is the purest form of that: it teaches the operator to
+// ignore the strip, which is precisely the wrong habit for the one component
+// that must be believed in Phase 7.
+//
+// So the default is `strip`: a single line carrying approval mode and feed
+// state, expanding to the full grid on click. Every §6 property is intact --
+// still plain DOM, still first painted, still no dependency on WebGL, canvas
+// or the socket, still its own error boundary. What changed is how much room
+// it takes when it has nothing to report.
+//
+// **This must return to the full grid before Phase 7.** Heat and daily-loss
+// headroom become live numbers the moment there is a position, and a number
+// that matters behind a click is a number nobody reads. The expansion is a
+// concession to an empty system, not a design for a loaded one.
 
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { useGenesis, isStale } from '@/store/useGenesis'
 import { gaugeFraction, money, pct, ago } from '@/lib/format'
 import type { ApprovalMode } from '@/types/events'
@@ -31,14 +51,83 @@ const MODE_COPY: Record<ApprovalMode, { label: string; color: string; note: stri
   live:    { label: 'LIVE',    color: 'var(--state-live)',   note: 'Real capital at risk' },
 }
 
-export const SafetyFloor = memo(function SafetyFloor({ now }: { now: number }) {
+/**
+ * The collapsed strip: one line, in the shell chrome.
+ *
+ * `defaultOpen` exists for the Settings panel, which renders the same
+ * component expanded — one implementation, two placements, so the numbers
+ * cannot drift between the summary and the detail.
+ */
+export const SafetyFloor = memo(function SafetyFloor({
+  now, variant = 'strip', defaultOpen = false,
+}: {
+  now: number
+  variant?: 'strip' | 'full'
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
   const safety = useGenesis((s) => s.safety)
   const connection = useGenesis((s) => s.connection)
   const stale = isStale(safety.asOf, now)
   const mode = MODE_COPY[safety.approvalMode]
+  const feedOk = connection.status === 'open' && !connection.gap
+
+  if (variant === 'strip' && !open) {
+    return (
+      <button
+        className="flex items-center gap-3 w-full row-hit"
+        style={{ background: 'var(--bg-panel)', padding: 'var(--s-2) var(--s-4)', textAlign: 'left' }}
+        onClick={() => setOpen(true)}
+        title="Approval mode, portfolio heat, daily-loss headroom, open positions and feed state"
+      >
+        <span className="label" style={{ flexShrink: 0 }}>approval</span>
+        <span
+          className="num"
+          style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: mode.color, letterSpacing: '0.06em' }}
+        >
+          {mode.label}
+        </span>
+        <span className="label" style={{ letterSpacing: 0, textTransform: 'none' }}>{mode.note}</span>
+
+        <span style={{ flex: 1 }} />
+
+        {/* Halted is never collapsed away. It is the one thing on this strip
+            that changes what the system will do next. */}
+        {safety.halted && (
+          <span
+            className="num"
+            style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--state-down)' }}
+          >
+            HALTED
+          </span>
+        )}
+        <span
+          aria-hidden
+          style={{
+            width: 6, height: 6, borderRadius: 999, flexShrink: 0,
+            background: feedOk ? 'var(--verdict-pass)' : 'var(--state-down)',
+          }}
+        />
+        <span className="label" style={{ flexShrink: 0 }}>
+          {connection.kind === 'mock' ? 'mock data' : connection.status}
+        </span>
+        <span className="label" style={{ flexShrink: 0, color: 'var(--ink-ghost)' }}>risk ▾</span>
+      </button>
+    )
+  }
 
   return (
-    <div className="flex items-stretch" style={{ gap: 1, background: 'var(--hairline)' }}>
+    <div className="flex flex-col" style={{ background: 'var(--hairline)', gap: 1 }}>
+      {variant === 'strip' && (
+        <button
+          className="flex items-center gap-2 w-full row-hit"
+          style={{ background: 'var(--bg-panel)', padding: 'var(--s-1) var(--s-4)', textAlign: 'left' }}
+          onClick={() => setOpen(false)}
+        >
+          <span className="label">risk ▴ collapse</span>
+        </button>
+      )}
+      <div className="flex items-stretch" style={{ gap: 1, background: 'var(--hairline)' }}>
       <Cell label="approval mode" width={132}>
         <div className="flex items-baseline gap-[6px]">
           <span
@@ -109,13 +198,14 @@ export const SafetyFloor = memo(function SafetyFloor({ now }: { now: number }) {
             ? `event ${ago(now - connection.lastEventAt)}` : 'no events yet'}
         </div>
       </Cell>
+      </div>
     </div>
   )
 })
 
 function Cell({ label, width, children }: { label: string; width?: number; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--bg-panel)', padding: '5px 10px', minWidth: width, flexShrink: 0 }}>
+    <div style={{ background: 'var(--bg-panel)', padding: 'var(--s-3) var(--s-4)', minWidth: width, flexShrink: 0 }}>
       <div className="label">{label}</div>
       {children}
     </div>
@@ -137,7 +227,7 @@ function Gauge({
   return (
     <div
       className={stale ? 'stale-box' : ''}
-      style={{ background: 'var(--bg-panel)', padding: '5px 10px', minWidth: 168, flexShrink: 0 }}
+      style={{ background: 'var(--bg-panel)', padding: 'var(--s-3) var(--s-4)', minWidth: 168, flexShrink: 0 }}
     >
       <div className="label">{label}</div>
       <div className="flex items-baseline gap-[6px]">

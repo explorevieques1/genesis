@@ -1,8 +1,8 @@
 ---
 title: Markup Spec Schema
 tags: [schema, charting]
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/charting/spec.py, tests/charting/test_spec.py, ui/src/components/charts/drawings.ts]
 ---
 
 # Markup Spec Schema

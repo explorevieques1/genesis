@@ -2,7 +2,7 @@
 title: Order And Fill Schema
 tags: [schema, execution, risk]
 status: building
-implemented_by: [src/genesis/memory/ledger.py]
+implemented_by: [src/genesis/memory/ledger.py, src/genesis/execution/order_manager.py, src/genesis/execution/approval.py]
 ---
 
 # Order And Fill Schema
@@ -32,7 +32,7 @@ bracket: true
 
 origin:
   kind: idea                  # idea | strategy | human | agent
-  ref: idea_01J8XS
+  ref: idea_01J8XS            # honoured since 2026-09-20; see below
 strategy: nq_orb_v3
 account: primary
 
@@ -169,7 +169,40 @@ If the broker lacks native brackets, the group is emulated and
 [[Agent — Order Manager]] treats a failure to place the stop as `fatal`, flattening
 rather than holding unprotected ([[Agent — Broker Adapter]] capability declaration).
 
+## Storage additions (2026-09-13)
+
+`orders` gains `proposal_id`, `con_id`, `role` (entry | stop | target | close |
+external), `bracket_group`, `stop_price`, `trail_amount`. State changes are
+rows in a new append-only `order_events` table — `orders` holds one row per
+order and cannot be updated, so an order's state is its latest event. The
+`new` event carries the proposal (arrival quote included) and the confirmation.
+
+`client_order_id` is sent to IBKR as `orderRef`. Children append `_sl`, `_tp`;
+protection placed after a market fill appends `_sl1`, `_tp1`; replacements
+append `_tr2`, `_tp2`. Kill switch orders are `kill_<halt id>_<n>`, with
+approval id `kill_<halt id>`; adopted broker state uses `adopt_…`.
+
 ## Related
 
 [[Trade Ledger]] · [[Pre-Trade Risk Engine]] · [[Agent — Order Manager]] ·
 [[Agent — Broker Adapter]] · [[genesis-execution-mcp]] · [[Safety Invariants]]
+
+
+## `origin.ref` — provenance, and the only route to an answer
+
+> [!warning] It was being dropped, and the loss was silent
+> `order_manager` read this field as `str(t.get("origin", "human"))`, so an
+> order placed from an idea reached the ledger indistinguishable from one typed
+> by hand. `JournalEntry.idea` — the field that exists precisely to carry this —
+> could never be filled, and "how are the news ideas doing?" had no answer that
+> was not a person's memory.
+>
+> `Proposal` now carries `origin` (the kind) and `origin_ref` (the id). Both
+> spellings of the ticket field are accepted: the bare string most callers send,
+> and the `{kind, ref}` object this schema specifies.
+
+The ref is a **provenance label and nothing more**. It reaches the audit line,
+the `order.proposed` event and the ledger; **no risk check consults it**, and
+none may. An order's parentage has no bearing on whether it is safe to place,
+and a gate that sized differently for a trusted source would be a gate that can
+be talked into a bigger position by changing a string.

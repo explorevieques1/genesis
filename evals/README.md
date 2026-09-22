@@ -1,6 +1,8 @@
 # Genesis evals
 
-**Scaffold. No LLM evals yet — they arrive in Phase 2.**
+**Three suites are live: intent classification, tool selection, and request
+coverage. The rest are committed as skipped placeholders naming the phase they
+wait on.**
 
 Pattern adapted from `~/Work/jarvis/EVALS.md` and its `evals/` layout (a
 reference repo, read for structure only). Everything here is expressed in
@@ -73,15 +75,20 @@ Judge-backed cases carry `judge_criteria` and the `requires_judge` marker from
 | `helpers.py` | `EvalCase`, `EvalResult`, `assert_meets_criteria`, `ToolCallCapture`, judge client |
 | `conftest.py` | `requires_judge` marker, `tools` and `config` fixtures, auto `eval` marking |
 | `test_scaffold.py` | self-checks for the harness — proves `pytest evals` runs something |
+| `corpora/intent.py` | utterances labelled directed / ambient / follow-up / stop |
+| `corpora/tool_selection.py` | tasks paired with the capability that should win |
+| `corpora/requests.py` | **the hundred things the desk actually asks**, each with its owning agent, fan-out, and capabilities |
+| `test_request_coverage.py` | points that corpus at the live gateway: how many of the hundred are answerable today |
 | `test_*.py` (one per suite) | skipped placeholders for the suites below |
 
-## Planned suites (Phase 2+)
+## Suites
 
 | Suite | Phase | Question |
 |---|---|---|
-| Intent classification | 2 | directed vs. ambient vs. follow-up vs. stop |
+| Intent classification | 2 ✅ | directed vs. ambient vs. follow-up vs. stop |
 | Orchestrator planning | 2 | does an utterance decompose into a sensible task list? |
-| Tool selection | 3 | with 100+ tools registered, is the right handful chosen? |
+| Tool selection | 3 ✅ | with 100+ tools registered, is the right handful chosen? |
+| Request coverage | 3 ✅ | of the hundred real asks, how many can we reach the data for? |
 | Agent routing | 4 | does work reach the agent that should do it? |
 | Memory recall | 4 | does the right prior context come back? |
 | Idea quality | 4 | thesis, invalidation, and confidence that means something |

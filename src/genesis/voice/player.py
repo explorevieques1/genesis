@@ -71,7 +71,14 @@ class Player:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+        with self._lock:
+            self._chunks.clear()
+            self._tail = b""
         self.speaking.clear()
+        # No callback will run again, so nothing else will ever set this. A
+        # waiter blocked in `wait()` at shutdown would otherwise sit there for
+        # its whole timeout while the audio it is waiting for no longer exists.
+        self._drained.set()
 
     def __enter__(self) -> Player:
         self.open()

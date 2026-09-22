@@ -2,10 +2,10 @@
 title: Agent — Watchdog
 tags: [agent, journal]
 family: journal
-cadence: market-open, market-closed
-tier: small
-status: spec
-implemented_by: []
+cadence: market-open, market-closed, event
+tier: none
+status: built
+implemented_by: [src/genesis/agents/journal/watchdog.py, src/genesis/journal/health.py, tests/journal/test_agents.py]
 ---
 
 # 🐕 Agent — Watchdog

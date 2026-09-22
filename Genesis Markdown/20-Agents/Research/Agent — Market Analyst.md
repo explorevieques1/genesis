@@ -4,8 +4,8 @@ tags: [agent, research]
 family: research
 cadence: cron, on-demand
 tier: large
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/research/market_analyst.py, tests/research/test_research_family.py]
 ---
 
 # 📊 Agent — Market Analyst
@@ -89,6 +89,29 @@ Write: `market-analyst`, `shared` (the regime record is shared by design)
 - Regime label changes no more than it should — flip-flopping daily on the same
   data is a failure. Test against a labelled historical month.
 - The spoken summary is under 25 words and contains at least one number.
+
+## Implementation notes — where the build differs from this note
+
+Three deviations, recorded here rather than discovered later:
+
+1. **Breadth is a sector proxy.** This note asks for "% above 50d/200d" and the
+   advance-decline line across index constituents. The bar store holds neither, so
+   breadth and leadership are measured across the eleven SPDR sector ETFs instead.
+   That is an approximation, and every note this agent writes carries a caveat
+   saying so — a proxy presented as a measurement is what this note's own system
+   prompt forbids.
+2. **No VIX term structure.** VIX *level* is read when the series is held;
+   contango/backwardation is not computed. The volatility read is realized
+   percentile plus a range-contraction measure, both from bars we already have.
+   When VIX is absent, the note says the read is realized-only.
+3. **The label carries hysteresis.** This note's acceptance criteria forbid
+   flip-flopping, so the regime score must clear a band boundary by a margin
+   (`HYSTERESIS`, currently 0.12) before yesterday's label is replaced. A
+   borderline day keeps yesterday's read and records why — which is the honest
+   answer: nothing measurable changed.
+
+The classification itself is deterministic. The model is given the finished
+measurements and writes the sentence; it never sets a field.
 
 ## Related
 

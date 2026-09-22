@@ -24,13 +24,18 @@
 // conversion is allowed — and it is confined to the four lines that build the
 // series, rather than smeared across the app.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  CandlestickSeries, HistogramSeries, LineSeries, createChart,
-  type IChartApi, type ISeriesApi, type Time, type UTCTimestamp,
+  CandlestickSeries, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart,
+  type IChartApi, type IPriceLine, type ISeriesApi, type Time, type UTCTimestamp,
 } from 'lightweight-charts'
 import type { BarRow } from '@/api/client'
 import { withAlpha } from '@/lib/format'
+import { DrawingLayer } from './DrawingLayer'
+import {
+  DEFAULT_SETTINGS,
+  type ChartSettings, type Drawing, type NewDrawing, type ToolId,
+} from './drawings'
 
 export interface PriceMarker {
   time: number
@@ -48,6 +53,16 @@ export interface PriceOverlay {
   points: [number, number][]
 }
 
+/** A horizontal line at a price — working orders and the position's entry. */
+export interface PriceLine {
+  id: string
+  /** A string, like every price: parsed here, at the chart boundary. */
+  price: string
+  color: string
+  title: string
+  style?: 'solid' | 'dashed' | 'dotted'
+}
+
 interface Props {
   bars: BarRow[]
   /** Trade markers — backtest fills, level touches. */
@@ -57,6 +72,27 @@ interface Props {
   /** Drawn with the stale hatch when any bar is tier 3 or worse. */
   tier?: number
   onCrosshair?: (bar: BarRow | null) => void
+  /** Appearance. Omitted, the chart looks the way it always did. */
+  settings?: ChartSettings
+  /** The trader's own marks. Omitted, there is no drawing surface at all. */
+  drawings?: Drawing[]
+  tool?: ToolId
+  selectedId?: string | null
+  /** Decimal places for the labels a drawing prints. */
+  places?: number
+  onSelect?: (id: string | null) => void
+  onDelete?: (id: string) => void
+  onCommit?: (drawing: NewDrawing) => void
+  /** A drawing whose handle was dragged — same id, new geometry. */
+  onUpdate?: (drawing: Drawing) => void
+  onToolDone?: () => void
+  /**
+   * The newest bar from the live feed — forming or just closed. Applied with
+   * `update()`, not `setData()`, so a tick never resets the trader's zoom.
+   */
+  live?: BarRow | null
+  /** Orders and positions from the order path. Omitted, none are drawn. */
+  priceLines?: PriceLine[]
 }
 
 /** Genesis tokens, read once so the chart matches the surface it sits in. */
@@ -77,12 +113,18 @@ function tokens() {
 
 export function PriceChart({
   bars, markers, overlays, showVolume = true, tier = 9, onCrosshair,
+  settings = DEFAULT_SETTINGS, drawings, tool = 'none', selectedId = null,
+  places = 2, onSelect, onDelete, onCommit, onUpdate, onToolDone, live, priceLines,
 }: Props) {
   const host = useRef<HTMLDivElement>(null)
+  // Bumped once the chart exists, so the drawing layer mounts with real APIs
+  // rather than nulls it has to guard on every render.
+  const [ready, setReady] = useState(0)
   const chartRef = useRef<IChartApi | null>(null)
   const candlesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const overlayRefs = useRef<Map<string, ISeriesApi<'Line'>>>(new Map())
+  const lineRefs = useRef<IPriceLine[]>([])
 
   // -- create once ------------------------------------------------------
   useEffect(() => {
@@ -114,10 +156,15 @@ export function PriceChart({
         vertLine: { color: t.core, width: 1, style: 3, labelBackgroundColor: t.core },
         horzLine: { color: t.core, width: 1, style: 3, labelBackgroundColor: t.core },
       },
-      handleScale: { axisPressedMouseMove: { time: true, price: false } },
+      // Both axes drag-scale. The price axis used to be pinned, which left
+      // autoscale as the only way to frame a move -- and a range you are
+      // studying is exactly when you want to stretch price and leave time
+      // alone.
+      handleScale: { axisPressedMouseMove: { time: true, price: true } },
       autoSize: true,
     })
     chartRef.current = chart
+    setReady((n) => n + 1)
 
     candlesRef.current = chart.addSeries(CandlestickSeries, {
       upColor: t.up, downColor: t.down,
@@ -149,6 +196,50 @@ export function PriceChart({
     }
   }, [showVolume])
 
+  // -- settings ---------------------------------------------------------
+  //
+  // Applied rather than baked into creation: a colour change must not rebuild
+  // the chart, because rebuilding resets the pan, the zoom and the drawings'
+  // coordinates with it.
+  useEffect(() => {
+    const chart = chartRef.current
+    const candles = candlesRef.current
+    if (!chart || !candles) return
+    const t = tokens()
+    const up = settings.up || t.up
+    const down = settings.down || t.down
+
+    chart.applyOptions({
+      grid: {
+        vertLines: { visible: settings.grid, color: t.grid },
+        horzLines: { visible: settings.grid, color: t.grid },
+      },
+      crosshair: { mode: settings.crosshair ? 1 : 2 },
+      timeScale: { timeVisible: settings.timeVisible },
+    })
+    chart.priceScale('right').applyOptions({
+      mode: settings.scale === 'logarithmic'
+        ? PriceScaleMode.Logarithmic
+        : settings.scale === 'percentage'
+          ? PriceScaleMode.Percentage
+          : PriceScaleMode.Normal,
+    })
+    candles.applyOptions({
+      // Hollow means *bullish* hollow, the way every terminal draws it: an
+      // up bar is an outline, a down bar is filled. Both hollow would say
+      // nothing that the wick colour does not already say.
+      upColor: settings.hollow ? 'rgba(0,0,0,0)' : up,
+      downColor: down,
+      borderVisible: settings.hollow,
+      borderUpColor: up,
+      borderDownColor: down,
+      wickVisible: settings.wicks,
+      wickUpColor: up,
+      wickDownColor: down,
+    })
+    volumeRef.current?.applyOptions({ visible: settings.volume })
+  }, [settings, ready])
+
   // -- data -------------------------------------------------------------
   useEffect(() => {
     const candles = candlesRef.current
@@ -172,13 +263,37 @@ export function PriceChart({
           // rgba, not color-mix: Lightweight Charts parses colours itself and
           // throws on `color-mix(...)`, which silently produced an empty chart.
           color: Number(bar.close) >= Number(bar.open)
-            ? withAlpha(t.up, 0.26)
-            : withAlpha(t.down, 0.26),
+            ? withAlpha(settings.up || t.up, 0.26)
+            : withAlpha(settings.down || t.down, 0.26),
         })),
       )
     }
     chartRef.current?.timeScale().fitContent()
-  }, [bars])
+  }, [bars, settings.up, settings.down])
+
+  // -- live edge --------------------------------------------------------
+  useEffect(() => {
+    const candles = candlesRef.current
+    if (!candles || !live) return
+    const t = tokens()
+    try {
+      candles.update({
+        time: live.time as UTCTimestamp,
+        open: Number(live.open), high: Number(live.high),
+        low: Number(live.low), close: Number(live.close),
+      })
+      volumeRef.current?.update({
+        time: live.time as UTCTimestamp,
+        value: Number(live.volume),
+        color: Number(live.close) >= Number(live.open)
+          ? withAlpha(settings.up || t.up, 0.26)
+          : withAlpha(settings.down || t.down, 0.26),
+      })
+    } catch {
+      // Older than the last bar drawn (a late event after a reload). The
+      // store-backed bars are already right; nothing to do.
+    }
+  }, [live, settings.up, settings.down])
 
   // -- markers ----------------------------------------------------------
   useEffect(() => {
@@ -237,6 +352,26 @@ export function PriceChart({
     }
   }, [overlays])
 
+  // -- order lines -------------------------------------------------------
+  //
+  // Rebuilt whole on each change: a handful of lines, and removing a price
+  // line does not touch the series data, so the trader's zoom survives.
+  useEffect(() => {
+    const candles = candlesRef.current
+    if (!candles) return
+    for (const line of lineRefs.current) candles.removePriceLine(line)
+    lineRefs.current = (priceLines ?? [])
+      .filter((l) => Number.isFinite(Number(l.price)))
+      .map((l) => candles.createPriceLine({
+        price: Number(l.price),
+        color: l.color,
+        lineWidth: 1,
+        lineStyle: l.style === 'dotted' ? LineStyle.Dotted : l.style === 'dashed' ? LineStyle.Dashed : LineStyle.Solid,
+        axisLabelVisible: true,
+        title: l.title,
+      }))
+  }, [priceLines, ready])
+
   // -- crosshair readout ------------------------------------------------
   useEffect(() => {
     const chart = chartRef.current
@@ -251,9 +386,27 @@ export function PriceChart({
 
   return (
     <div
-      ref={host}
       className={tier >= 3 ? 'stale-box' : undefined}
-      style={{ width: '100%', height: '100%' }}
-    />
+      style={{ position: 'relative', width: '100%', height: '100%' }}
+    >
+      <div ref={host} style={{ width: '100%', height: '100%' }} />
+      {/* `ready` is read so the layer remounts once the APIs exist. */}
+      {drawings && chartRef.current && candlesRef.current && ready > 0 && (
+        <DrawingLayer
+          chart={chartRef.current}
+          series={candlesRef.current}
+          bars={bars}
+          drawings={drawings}
+          tool={tool}
+          selectedId={selectedId}
+          places={places}
+          onSelect={onSelect ?? (() => {})}
+          onDelete={onDelete ?? (() => {})}
+          onCommit={onCommit ?? (() => {})}
+          onUpdate={onUpdate ?? (() => {})}
+          onDone={onToolDone ?? (() => {})}
+        />
+      )}
+    </div>
   )
 }

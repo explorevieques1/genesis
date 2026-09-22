@@ -4,8 +4,8 @@ tags: [agent, journal]
 family: journal
 cadence: cron, market-closed
 tier: large
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/journal/performance_analyst.py, src/genesis/metrics/core.py, tests/journal/test_metrics.py, tests/journal/test_agents.py]
 ---
 
 # 📊 Agent — Performance Analyst
@@ -18,8 +18,19 @@ could matter and reports honestly — including when the answer is "you have no 
 ## Cadence
 
 - `cron` 18:00 ET — daily tearsheet
-- `cron` Sunday 10:00 — **the weekly review**, spoken
+- `cron` 10:00 ET — the second daily pass, which the **weekly review** rides on
 - `market-closed` — deeper slices on demand
+
+> [!warning] The agent's cron cannot say "Sunday"
+> [[Agent Contract|`Cadence`]] has no weekday field: `{type: cron, at: "10:00"}`
+> fires *every* day. This note used to claim a Sunday cron, which no scheduler
+> could have honoured — it was read as daily for as long as it has existed.
+>
+> Sunday lives one layer up, in [[Automation]]: the **Weekly review** workflow
+> gates on `logic.days [sun]` and then runs the review. That is also where the
+> result becomes something you can read — this agent writes to its memory
+> namespace and never to the notebook, so the workflow's `journal.tearsheet`
+> step is what puts the week in `Reviews/`.
 
 ## Dimensions analysed
 

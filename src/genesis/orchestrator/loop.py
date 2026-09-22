@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from genesis.errors import DegradedError
 from genesis.ids import new_trace_id
 from genesis.memory.working import WorkingMemory
+from genesis.orchestrator.answer import Ladder
 from genesis.orchestrator.answers import TrivialAnswerer
 from genesis.orchestrator.intent import Intent, IntentClassifier
 from genesis.voice.capture import Microphone
@@ -139,6 +140,22 @@ class VoiceLoop:
         #: Frames of loud speech seen while Genesis is talking. Barge-in needs
         #: a few in a row -- see :meth:`_maybe_barge_in`.
         self._loud_while_speaking = 0
+
+    def ladder(self) -> Ladder:
+        """This loop's rungs, as the shared answer ladder.
+
+        Built per call rather than held. A dataclass allocation per utterance
+        is free next to a model round trip, and it keeps one source of truth:
+        rebinding ``loop.reasoner`` changes what answers, with no second copy
+        to keep in step.
+        """
+        return Ladder(
+            verbosity=self.verbosity,
+            answerer=self.answerer,
+            planner=self.planner,
+            runner=self.runner,
+            reasoner=self.reasoner,
+        )
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -281,12 +298,22 @@ class VoiceLoop:
             self._emit(turn)
             return
 
-        if not (result.actionable or (woken and directed_by_window)):
+        # The wake gate fired *and* a follow-up window is open, but the text
+        # classifier called it ambient -- a long follow-up, typically. We answer
+        # it, so it is not ambient, and the trace must say so: an answered turn
+        # labelled "ambient" is a turn the recorder deliberately does not write
+        # down, which would lose the record of a request we actually served.
+        overridden = not result.actionable and woken and directed_by_window
+        if not (result.actionable or overridden):
             # Ambient: buffer it, do nothing, never persist it.
             self.memory.ambient.add(local_text)
             turn.total_ms = (time.monotonic() - started) * 1000
             self._emit(turn)
             return
+        if overridden:
+            turn.intent = Intent.DIRECTED.value
+            turn.path = "wake-override"
+            turn.fields["classified"] = result.path
 
         # 3. Only now may the audio leave the machine.
         text = local_text
@@ -313,44 +340,28 @@ class VoiceLoop:
             turn.fields["ambient_used"] = ambient
         self.memory.ambient.clear()
 
-        # 4. Answer. Trivial questions never reach a model.
-        answer = self.verbosity.answer(text) if self.verbosity is not None else None
-        if answer is not None:
-            turn.path = "verbosity"
-            turn.fields["verbosity"] = self.verbosity.level.wire_name
-        if answer is None:
-            answer = self.answerer.answer(text)
-
-        # 4b. Plan. Anything the reflex declined gets one attempt at a task
-        # list before the large tier does the work itself. A decline here is
-        # normal and cheap -- with no agents registered the planner returns
-        # without calling a model at all.
-        if answer is None and self.planner is not None and self.runner is not None:
-            outcome = self.planner.plan(text, context=ambient)
-            turn.fields["plan"] = outcome.reason
-            if outcome.plan is not None:
-                turn.fields["plan_tasks"] = len(outcome.plan.tasks)
-                turn.path = "planned"
-                # Voice Stack: anything needing agents blows the 1.5 s budget,
-                # so acknowledge *before* the work, not after. The tone fires
-                # here, ahead of the await window, because that is the whole
-                # point of having one.
-                self._earcon(Earcon.ACKNOWLEDGED)
-                answer = self.runner.run(outcome.plan)
-
-        if answer is None and self.reasoner is not None:
-            # Default down, then escalate: the calendar reflex gets first
-            # refusal, and only what it declines costs a hosted round trip.
-            answer = self.reasoner.answer(text, context=ambient)
-        if answer is None:
-            # Nothing deterministic fit and the large tier is unavailable or
-            # declined. Say so rather than going quiet -- the fail-open rule is
-            # that the user is never left unanswered.
-            reply = "I can't reach my reasoning model right now."
-            source = "unhandled"
-        else:
-            reply = answer.text
-            source = answer.source
+        # 4. Answer. The ladder itself lives in `orchestrator/answer.py` and is
+        # shared with `POST /v1/command`: the typed sentence and the spoken one
+        # must reach the same rungs, or a microphone becomes a capability
+        # (Operating Model §2). Everything the loop keeps below this line --
+        # the earcon, the speaker, the follow-up window -- is about *audio*,
+        # which is the only part the two paths do not share.
+        #
+        # The rungs are read off `self` at call time rather than held, so a
+        # test that swaps `loop.reasoner` after construction still swaps the
+        # rung the ladder walks.
+        rung = self.ladder().answer(
+            text,
+            context=ambient,
+            # Voice Stack: anything needing agents blows the 1.5 s budget, so
+            # acknowledge *before* the work, not after. The tone fires ahead of
+            # the await window, because that is the whole point of having one.
+            on_dispatch=lambda: self._earcon(Earcon.ACKNOWLEDGED),
+        )
+        turn.path = rung.path
+        turn.fields.update(rung.fields)
+        reply = rung.answer.text
+        source = rung.answer.source
 
         turn.spoken = reply
         turn.source = turn.source or source

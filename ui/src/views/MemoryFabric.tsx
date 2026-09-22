@@ -100,7 +100,7 @@ export const MemoryFabric = memo(function MemoryFabric({ now }: { now: number })
                     height: '100%',
                     width: `${Math.min(100, rt.reads * 4)}%`,
                     background: 'var(--edge-memory)',
-                    opacity: hot ? 1 : 0.4,
+                    opacity: hot ? 1 : 0.68,
                   }}
                 />
               </div>

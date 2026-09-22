@@ -20,5 +20,9 @@
     "paths": { "@/*": ["./src/*"] },
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo"
   },
-  "include": ["src"]
+  "include": ["src"],
+  // A node script, run by `npm run check:charts`. It imports `./drawings.ts`
+  // by its real filename (node needs the extension) and pulls in node's own
+  // types, neither of which belongs in the browser build.
+  "exclude": ["src/**/*.check.ts"]
 }

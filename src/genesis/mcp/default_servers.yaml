@@ -1,0 +1,1283 @@
+# Spec: Genesis Markdown/30-MCP/MCP Server Catalog.md
+#
+# The shipped server catalogue. Layer 1 of two; ~/.genesis/mcp_servers.yaml
+# overrides an entry wholesale by id (never merged — deep-merging an allow-list
+# is how you keep tools you thought you had removed).
+#
+# Rule: secrets in env, behaviour here. A server names the variables it needs in
+# `env_keys` and the runtime reads them at connect time. Never a key in this file.
+#
+# `read_only: true` buys bulk registration and is a claim you are making about
+# the server. `read_only: false` obliges you to name every tool you want. Use
+# the second whenever a server can write, and whenever it is large enough that
+# you would not want to read its whole tool list to a model.
+#
+# Verified live 2026-09-03: every enabled server below was started through
+# genesis's own runtime and its tool list read back, and every `tools:` block
+# names tools that actually exist. `genesis mcp check` repeats that on demand.
+#
+# One exception, named rather than hidden: `github` is configured against
+# GitHub's hosted endpoint and reaches it, but a real token was not available,
+# so it answers 401 and registers nothing. The transport is proven; the tool
+# list is not.
+#
+# `genesis mcp check` reports a server that connected and registered ZERO tools
+# as a loud warning. That is the symptom of the failure that otherwise looks
+# like success — a wrong package name, a toolset that needs enabling, a
+# `tools:` block naming tools this version renamed — because the server is
+# *up*, so nothing errors and the capability is simply, silently, not there.
+#
+# On curation: several servers below are `read_only: true` AND
+# `explicit_tools: true`. That combination is not redundant. The first says the
+# server cannot write; the second says we are naming its tools anyway, because
+# it ships more of them than a trading desk has questions for. FRED offers 33
+# tools, 28 of which walk its own taxonomy; arxiv offers 19, 12 of which manage
+# a local paper library. Registering those is the context-rot problem MCP
+# Gateway.md §2 exists to prevent, and the router cannot rank its way out of a
+# catalogue where thirty tools are equally irrelevant.
+
+servers:
+
+  # --- Utility -----------------------------------------------------------
+
+  - id: time
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: [mcp-server-time]
+    read_only: true
+    # The backstop. Both tools below are named, so the prefix changes nothing
+    # today — it is here for the day mcp-server-time gains a third. Without it
+    # that third tool would register with `get_whatever` as its capability,
+    # which no `time.*` grant can reach and nothing would report as wrong.
+    capability_prefix: time
+    trust: trusted
+    tier: 1
+    idle_timeout_sec: 300     # stateless; holding a process open for a clock is waste
+    tools:
+      # Named for a shorter capability than the prefix would produce —
+      # `time.now` rather than `time.get_current_time`.
+      get_current_time: { capability: time.now,     mutating: false }
+      convert_time:     { capability: time.convert, mutating: false }
+
+  # Raw file access, scoped to the vault directory by the server's own argument.
+  # Reads only: notes are written through obsidian below, which understands
+  # frontmatter, links and tags. Raw writes would produce files that look like
+  # notes and are not — see Obsidian Vault Schema.
+  - id: filesystem
+    enabled: true
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "~/GenesisVault"]
+    read_only: false
+    trust: trusted
+    tier: 1
+    tools:
+      read_text_file:       { capability: fs.read,   mutating: false }
+      read_multiple_files:  { capability: fs.read-many, mutating: false }
+      list_directory:       { capability: fs.list,   mutating: false }
+      directory_tree:       { capability: fs.tree,   mutating: false }
+      search_files:         { capability: fs.search, mutating: false }
+      get_file_info:        { capability: fs.stat,   mutating: false }
+
+  - id: git
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: [mcp-server-git]
+    read_only: false          # it can commit; we take the read half
+    trust: trusted
+    tier: 1
+    idle_timeout_sec: 600
+    tools:
+      git_status: { capability: git.status, mutating: false }
+      git_log:    { capability: git.log,    mutating: false }
+      git_diff:   { capability: git.diff,   mutating: false }
+      git_show:   { capability: git.show,   mutating: false }
+
+  # --- Knowledge: the vault ----------------------------------------------
+
+  # Writes notes, and that is the point — Phase 4's exit criterion is a daily
+  # brief *in the vault*. Filesystem-based, so it does NOT require the Obsidian
+  # app to be running: Biological Design is explicit that nothing in the
+  # autonomous loop may hard-depend on a GUI being open, and an overnight run
+  # that needs a window open is exactly that dependency.
+  #
+  # Vault content is `trusted` because it is our own writing — but note that
+  # text an agent pasted in from the web arrived untrusted and does not become
+  # trusted by being written down. Fencing on the way IN is what keeps this row
+  # honest, which is why the web servers below are tier 4.
+  - id: obsidian
+    enabled: true
+    transport: stdio
+    command: npx
+    args: ["-y", "obsidian-mcp", "serve", "--vault", "genesisvault=~/GenesisVault"]
+    read_only: false
+    trust: trusted
+    tier: 1
+    tools:
+      # Keywords matter more here than anywhere else in the file. All three
+      # note tools share the name token `note`, so without them they tie, and
+      # the tie-break picks the shortest capability leaf — which makes "write
+      # a note" mean `edit`. The verbs are the whole signal.
+      obsidian_read_note:
+        capability: vault.read
+        mutating: false
+        keywords: [read, open, show, contents, "what does", say]
+      obsidian_search_vault:
+        capability: vault.search
+        mutating: false
+        # Without these, "search my notes" reaches `fs.search` — the tool that
+        # finds files by name, not the one that searches what is in them.
+        keywords: [search, find, notes, note, wrote, mentioned, "look for",
+                   anything, about]
+      obsidian_list_vaults:     { capability: vault.list,   mutating: false }
+      obsidian_create_note:
+        capability: vault.create
+        mutating: true
+        # `new` is deliberately absent. It reads as "create" in "a new note"
+        # and as "edit" in "update that note with the new numbers", and the
+        # second is the expensive misread: it makes a duplicate note instead of
+        # amending one. An ambiguous keyword is worse than a missing one.
+        keywords: [write, create, save, record, add, jot, log, capture, start,
+                   "make a note"]
+      obsidian_edit_note:
+        capability: vault.edit
+        mutating: true
+        keywords: [edit, update, change, append, revise, modify, amend,
+                   "add to"]
+      obsidian_create_directory: { capability: vault.mkdir,  mutating: true }
+      obsidian_add_tags:        { capability: vault.tag,    mutating: true }
+      obsidian_manage_tags:     { capability: vault.tags,   mutating: true }
+      # Deliberately absent: obsidian_delete_note, obsidian_move_note,
+      # obsidian_remove_tag, obsidian_rename_tag. Genesis writes to the vault;
+      # it does not reorganise or destroy what you wrote. Destructive vault
+      # edits are a human's call, and an agent that can delete notes can lose
+      # research nobody knew was gone.
+
+  # --- Web: everything here is untrusted and fenced -----------------------
+
+  # Exa: neural web search built for agents, plus a page fetch that returns
+  # clean text rather than HTML — which is what makes `<untrusted>` fencing
+  # mechanical instead of a parsing exercise.
+  #
+  # Hosted endpoint, authenticated with a header. The local npm server
+  # (exa-mcp-server 3.4.1) was tried first and exposes only two tools: it
+  # accepts `--tools=` and ignores it, so web_search_advanced_exa and agent_run
+  # are reachable only here. The `tools=` query parameter below is what
+  # enables them.
+  #
+  # The key stays in the environment: `${EXA_API_KEY}` is resolved at connect
+  # time, so this file holds the *name* of a secret and never the secret, and a
+  # rotated key takes effect on the next reconnect rather than the next
+  # restart. Get one at dashboard.exa.ai.
+  #
+  # Tier 4: third-party text, fenced on arrival, never embedded verbatim.
+  - id: exa
+    enabled: true
+    transport: http
+    url: "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa,agent_run"
+    headers:
+      x-api-key: "${EXA_API_KEY}"
+    read_only: true
+    capability_prefix: web   # backstop for anything the hosted endpoint adds
+    trust: untrusted
+    tier: 4
+    idle_timeout_sec: 900
+    rate_limit: { per_minute: 30, burst: 8 }   # paid credits, and agent_run is expensive
+    tools:
+      web_search_exa:          { capability: web.search,          mutating: false }
+      web_search_advanced_exa: { capability: web.search-advanced, mutating: false }
+      web_fetch_exa:
+        capability: web.read
+        mutating: false
+        # "read the page at <url>" is the request; the tool's own blurb says
+        # "fetch". Without these the ranker has one shared word to work with.
+        keywords: [page, url, link, article, website, open, read]
+      # Exa's deep-research agent. Minutes, not seconds — it plans, searches
+      # and synthesises before answering. The long timeout is why timeouts are
+      # per-tool: 30s would kill it, and giving every tool 300s would mean a
+      # hung quote lookup blocks its server's queue for five minutes.
+      #
+      # This belongs on a Task Bus lane, not on the voice path. Nothing that
+      # takes minutes should be awaited by a spoken turn.
+      agent_run:               { capability: research.agent, mutating: false, timeout_sec: 300 }
+
+  # For when the URL is known and search is a detour. Every URL argument is
+  # SSRF-checked by the gateway before this server ever sees it.
+  - id: fetch
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: [mcp-server-fetch]
+    read_only: true
+    capability_prefix: web
+    trust: untrusted
+    tier: 4
+    idle_timeout_sec: 900
+    tools:
+      fetch: { capability: web.fetch, mutating: false }
+
+  # --- TradingView (headless data/analysis) -------------------------------
+  #
+  # READ THIS BEFORE ENABLING ANYTHING ELSE FROM IT.
+  #
+  # This server exposes 73 tools, and among them: execute_order,
+  # execute_portfolio_trade, record_trade, close_trade, dispatch_trade_alert,
+  # kelly_position_size, risk_based_position_size, assess_trade_risk_full.
+  #
+  # Two separate violations if registered wholesale:
+  #   1. Order placement, three phases before the Pre-Trade Risk Engine exists
+  #      — Safety Invariants §1, the same trap MCP Server Catalog.md flagged
+  #      for Alpaca, but larger.
+  #   2. POSITION SIZING AND RISK ARITHMETIC ON A THIRD-PARTY SERVER —
+  #      Safety Invariants §3. Genesis sizes its own positions and computes its
+  #      own stops. A number that decides how much to buy may not arrive over a
+  #      socket from somebody else's code.
+  #
+  # 73 tools would also be most of the catalogue on its own, which is the
+  # context-rot problem MCP Gateway.md §2 exists to prevent.
+  #
+  # So: named tools only, and a deliberately small set. Analysis and sentiment,
+  # nothing that prices, sizes, or acts. Price data is left out on purpose —
+  # Market Data Sources decides feeds by tier and that is a separate decision.
+  #
+  # This is NOT the server that opens a chart on your screen. That is
+  # genesis-tradingview-mcp, which drives the desktop app over CDP and is ours
+  # to build — Build Plan step 8.
+  - id: tradingview
+    enabled: true
+    transport: stdio
+    command: uvx
+    # The server is written against MCP SDK v1 and crashes on import under v2.
+    # Its environment is isolated from ours, so the pin belongs here.
+    args: ["--with", "mcp<2", "--from", "tradingview-mcp", "tradingview-mcp"]
+    read_only: false
+    trust: untrusted
+    tier: 3
+    idle_timeout_sec: 900
+    tools:
+      multi_timeframe_analysis: { capability: ta.multi-timeframe, mutating: false }
+      market_sentiment:         { capability: ta.sentiment,       mutating: false }
+      financial_news:           { capability: news.headlines,     mutating: false }
+      recognize_market_pattern: { capability: ta.pattern,         mutating: false }
+      detect_market_anomalies:  { capability: ta.anomaly,         mutating: false }
+
+  # --- Filings, macro, and documents -------------------------------------
+  #
+  # CONFIGURED, NOT YET VERIFIED. See the header.
+  #
+  # Everything in this block is read-only, has no dangerous verb in its tool
+  # surface, and serves primary documents rather than prices. That last point
+  # is why these are here and the whole market-data bench below is not: a
+  # server that also serves bars is a market-data decision, and Market Data
+  # Plane is being decided separately.
+
+  # The filing itself, not somebody's summary of it. MCP Server Catalog calls
+  # this the one primary source in the fundamentals section, and it is the
+  # structural backbone for Agent — Fundamental.
+  #
+  # SEC_EDGAR_USER_AGENT is a courtesy, not a credential: EDGAR asks for a
+  # name and email so it can contact whoever is generating traffic, and
+  # answers an anonymous client with a 403 that reads like an outage. It is
+  # in SECRET_ENV_VARS only because that is the one channel the config layer
+  # reads environment from — it is not secret, and the rate limit below is
+  # the other half of being a good citizen.
+  - id: sec-edgar
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: [sec-edgar-mcp]
+    env_keys: [SEC_EDGAR_USER_AGENT]
+    read_only: true
+    explicit_tools: true      # read-only AND curated — see below
+    capability_prefix: filings
+    # A person asks for "the 8-K" and "what the company said"; EDGAR's own tool
+    # descriptions say "submissions" and "concepts". The router is lexical, so
+    # the gap between those two vocabularies is stated here rather than guessed
+    # at runtime.
+    # Note what is NOT here: `company`. A word that is true of every tool on a
+    # server is a word that makes every tool on it score identically, and the
+    # tie is then broken alphabetically — which is how "has anyone been selling
+    # shares" reaches `analyze_8k`. Server-level keywords say *which server*;
+    # per-tool keywords say *which tool*, and conflating them costs the second.
+    # Form names moved down to the tools that actually serve them, for the same
+    # reason `company` is absent: `8k` at server level made every EDGAR tool
+    # equally relevant to "what did they announce in the 8-K", and the tie went
+    # alphabetically to a company-profile lookup.
+    keywords: [filing, edgar, sec, disclosure, form]
+    trust: trusted          # a government filing system, serving its own documents
+    tier: 1
+    idle_timeout_sec: 900
+    # EDGAR's published ceiling is 10 requests/second. We take a fraction of
+    # it: nothing here is latency-sensitive, and a temporary EDGAR ban is
+    # indistinguishable from EDGAR being down.
+    rate_limit: { per_minute: 60, burst: 10 }
+    # 21 tools offered, 13 taken. The eight left out are XBRL concept
+    # enumeration, a tool that recommends other tools, and a second Form 4
+    # surface that duplicates the insider tools below. None of them is a
+    # question anyone asks; all of them would be schemas in an agent's context.
+    tools:
+      get_cik_by_ticker:
+        capability: filings.cik
+        mutating: false
+        keywords: [ticker, cik, symbol, lookup]
+      search_companies:
+        capability: filings.search-companies
+        mutating: false
+        keywords: [company, name, find, search]
+      get_company_info:
+        capability: filings.company
+        mutating: false
+        keywords: [company, about, address, sic, industry, profile, who]
+      get_recent_filings:
+        capability: filings.recent
+        mutating: false
+        # Form names removed. "Recent filings" does not need them, and having
+        # them here made this tool tie with `analyze_8k` on "what did they say
+        # in the 8-K" — where the tie-break then picked the shorter capability
+        # and answered a specific question with a list.
+        keywords: [recent, latest, new, today, filed, submissions, "came out"]
+      get_filing_content:
+        capability: filings.content
+        mutating: false
+        keywords: [read, text, content, full, document, said, 10k, 10q, 8k]
+      get_filing_sections:
+        capability: filings.sections
+        mutating: false
+        keywords: [section, risk, factors, mdna, item, part, 10k, 10q,
+                   annual, quarterly]
+      get_financials:
+        capability: filings.financials
+        mutating: false
+        keywords: [financials, revenue, income, balance, statement]
+      get_company_facts:
+        capability: filings.facts
+        mutating: false
+        keywords: [facts, xbrl, reported, figures]
+      get_key_metrics:
+        capability: filings.metrics
+        mutating: false
+        keywords: [metrics, margin, ratio, growth]
+      compare_periods:
+        capability: filings.compare
+        mutating: false
+        keywords: [compare, "year over year", change, trend, versus]
+      analyze_8k:
+        capability: filings.material-event
+        mutating: false
+        keywords: [8k, material, event, announce, announced, announcement,
+                   catalyst, disclosed, reported, current, report]
+      get_insider_transactions:
+        capability: filings.insider
+        mutating: false
+        keywords: [insider, form4, executive, director, officer, bought, sold,
+                   buying, selling, sell, buy, share, shares, stock, anyone]
+      get_insider_summary:
+        capability: filings.insider-summary
+        mutating: false
+        keywords: [insider, summary, sentiment, cluster]
+
+  # Macro context: rates, CPI, unemployment, spreads. Primary government
+  # releases, free, and unmetered in practice — but the key is per-account and
+  # the polite ceiling is real.
+  - id: fred
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: [fred-mcp-server]
+    env_keys: [FRED_API_KEY]
+    read_only: true
+    explicit_tools: true
+    capability_prefix: macro
+    # FRED says "economic time series". People say "CPI".
+    keywords: [cpi, inflation, unemployment, jobs, payroll, rate, rates, gdp,
+               yield, spread, macro, economy, fed, treasury, recession]
+    trust: trusted
+    tier: 1
+    idle_timeout_sec: 900
+    rate_limit: { per_minute: 60, burst: 15 }
+    # 33 tools offered, 5 taken, and this is the clearest case in the file for
+    # why `read_only: true` does not mean "register everything". Twenty-eight
+    # of them walk FRED's own taxonomy — categories, tags, sources, release
+    # tables, GeoJSON region shapes. They are how you would *browse* FRED in a
+    # browser. Nothing in Genesis browses: an agent knows the series it wants
+    # or searches for it by name, and the other twenty-eight would be
+    # twenty-eight schemas of pure context rot competing with five real ones.
+    tools:
+      fred_series_search:
+        capability: macro.search
+        mutating: false
+        keywords: [find, search, which, series, indicator]
+      fred_series_observations:
+        capability: macro.series
+        mutating: false
+        # The workhorse: this is the one that returns actual numbers, and it is
+        # what almost every macro question actually wants. Its keywords carry
+        # the language of *asking for a range of values*, because that is what
+        # separates it from its four siblings once "CPI" has already told the
+        # router which server to look at.
+        # Note what was REMOVED here: `last`, `been`, `done`, `moved`. They
+        # were added to win one macro phrasing and they cost more than they
+        # bought — "did they pay a dividend last quarter" was reaching FRED,
+        # because `last` is in half of all questions and a generic word on a
+        # tier-1 server beats a specific word on a tier-3 one when the tie-break
+        # runs. A keyword that is true of every question is worse than none.
+        keywords: [values, history, observations, level, print, reading, chart,
+                   since, trend, recent, year, month, series]
+      fred_series:
+        capability: macro.series-info
+        mutating: false
+        keywords: [metadata, units, frequency, definition, about]
+      fred_releases_dates:
+        capability: macro.release-calendar
+        mutating: false
+        keywords: [calendar, schedule, when, release, upcoming, due]
+      fred_series_updates:
+        capability: macro.updated
+        mutating: false
+        keywords: [updated, revised, new, latest, changed]
+
+  # The missing link between "a research PDF exists" and "the vault can hold
+  # it". Purely local: it converts bytes to markdown and reaches no network,
+  # which is why it is trusted despite handling untrusted documents — the
+  # *content* it produces is fenced by whatever fetched the document, not by
+  # the converter.
+  #
+  # No rate limit: there is no quota to protect on a local process.
+  - id: markitdown
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: [markitdown-mcp]
+    read_only: true
+    capability_prefix: convert
+    keywords: [pdf, docx, xlsx, pptx, markdown, convert, document, paper, file]
+    trust: trusted
+    tier: 1
+    idle_timeout_sec: 600
+    # One tool, named so it carries a capability shorter than its own name.
+    tools:
+      convert_to_markdown:
+        capability: convert.to-markdown
+        mutating: false
+        keywords: [pdf, docx, xlsx, pptx, convert, markdown, turn, into]
+
+  # q-fin preprints. Most of what Agent — Strategy Author should be reading is
+  # papers, not blog posts. Untrusted: it is third-party prose reaching a
+  # model, and an abstract is as good a place to hide an instruction as a web
+  # page — the fence does not care that the source is respectable.
+  - id: arxiv
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: [arxiv-mcp-server]
+    read_only: true
+    explicit_tools: true
+    capability_prefix: papers
+    keywords: [paper, papers, preprint, arxiv, research, academic, study]
+    trust: untrusted
+    tier: 4
+    idle_timeout_sec: 900
+    rate_limit: { per_minute: 20, burst: 5 }
+    # 19 tools offered, 7 taken. The twelve left out manage a local paper
+    # library — topic watches, LaTeX section trees, outline pagination, a
+    # semantic reindex. That is a second memory system with its own storage,
+    # and Open Questions §9 decided against exactly that: retrieval belongs to
+    # Lithium and the Memory Fabric, not to a paper client.
+    tools:
+      search_papers:
+        capability: papers.search
+        mutating: false
+        keywords: [find, search, look, papers, about, "on"]  # quoted: bare `on` is YAML boolean true
+      get_abstract:
+        capability: papers.abstract
+        mutating: false
+        keywords: [abstract, summary, about, what, gist]
+      download_paper:
+        capability: papers.download
+        mutating: false
+        keywords: [download, fetch, "full text", get]
+      read_paper:
+        capability: papers.read
+        mutating: false
+        keywords: [read, content, text, body]
+      list_papers:
+        capability: papers.list
+        mutating: false
+        keywords: [list, have, downloaded, library, saved]
+      semantic_search:
+        capability: papers.semantic-search
+        mutating: false
+        keywords: [similar, semantic, like, related]
+      citation_graph:
+        capability: papers.citations
+        mutating: false
+        keywords: [cite, cited, citations, references, who]
+
+  # --- Work ---------------------------------------------------------------
+
+  # Issues, PRs and code search across the Genesis repos — and the honest way
+  # for Agent — Watchdog to file a defect rather than only logging one.
+  #
+  # GitHub's own hosted server, over HTTP, which is why there is no binary to
+  # install and no `--read-only` flag to pass: the `/readonly` path IS the
+  # read-only scope, enforced on their side rather than claimed on ours. That
+  # matters more here than it looks. This server ships create_issue,
+  # merge_pull_request and friends, and the mutating-verb tripwire in
+  # discovery.py would not catch a single one of them — "create" and "merge"
+  # are not dangerous words in the way "delete" and "order" are. So the
+  # enforcement has to be real, and a URL that cannot serve a write is real.
+  #
+  # Write scope is a deliberate, separately-granted step. It is not this one.
+  #
+  # Untrusted: issue and PR text is written by anyone with a GitHub account.
+  # A repository is a place strangers can leave prose for an agent to read.
+  - id: github
+    enabled: true
+    transport: http
+    url: "https://api.githubcopilot.com/mcp/readonly"
+    headers:
+      Authorization: "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"
+    read_only: true
+    capability_prefix: repo
+    keywords: [repo, repository, github, issue, pr, "pull request", commit, code]
+    trust: untrusted
+    tier: 3
+    idle_timeout_sec: 900
+    rate_limit: { per_minute: 100, burst: 25 }
+
+  # --- Free market data: yfinance, maverick, Finnhub ----------------------
+  #
+  # The posture, and it is Market Data Plane's own: **v1 needs no live feed at
+  # all.** Genesis is an analyst, not an execution bot. Closed bars, filings,
+  # macro series and calendars support every research agent, and closed data is
+  # the cheapest, most backfillable, most storable data there is. Real-time is
+  # an upgrade path for Agent — Level Watcher, not a prerequisite for anything.
+  #
+  # So the expensive axis — latency — is worth almost nothing here, and the
+  # cheap axes are the ones that matter: depth of history, breadth of coverage,
+  # primary documents. All three are free.
+  #
+  # > ONE OWNER PER CAPABILITY, DECIDED HERE, FREE-FIRST.
+  # >
+  # > Registry dedup refuses two tools claiming one capability at one tier —
+  # > it raises rather than picking, because a silent coin-flip between two
+  # > data sources is the failure it exists to prevent. So the contest is
+  # > settled in this file, by hand, and the tie-break is cost:
+  # >
+  # >   needs nothing  >  needs a free key  >  needs a paid key
+  # >
+  # > `yfinance` and `maverick` need no credential at all and therefore win
+  # > most of it. Where two sources genuinely answer *different questions* —
+  # > one symbol versus many, deep history versus a batch pull — they get
+  # > different capability names, because they are different capabilities.
+  # >
+  # > Tier still means what Market Data Sources says it means: trust, not
+  # > preference. Everything here is tier 3, public and third-party: fine for
+  # > research, screening and closed-market work, **never for sizing a
+  # > position or setting a stop**. Pre-Trade Risk Engine reads tier 1 and
+  # > nothing else, and nothing in this block is tier 1.
+  #
+  # Three of these are launched from a clone, because they have no PyPI
+  # package:
+  #     git clone <repo> ~/.genesis/mcp-servers/<dir>
+  # `uv --directory` syncs their dependencies on first run.
+
+  # The free workhorse. No API key, no account, no rate limit anyone publishes
+  # — and twenty years of daily bars, which is the single most valuable free
+  # thing on this list. Market Data Catalog's whole argument is that an
+  # analyst's shopping list is made of depth, breadth and primary documents,
+  # and this is depth.
+  #
+  # `untrusted` is not a slight on the data. Yahoo is a scraped consumer
+  # endpoint with no service agreement, and it changes what it serves without
+  # notice; the fence costs nothing and the label is honest.
+  #
+  # Verified live 2026-09-03: 10 tools, 9 registered.
+  - id: yfinance
+    enabled: true
+    transport: stdio
+    command: uv
+    args: ["--directory", "~/.genesis/mcp-servers/yfinance-mcp-server",
+           "run", "main.py"]
+    read_only: true
+    explicit_tools: true
+    trust: untrusted
+    tier: 3
+    idle_timeout_sec: 900
+    rate_limit: { per_minute: 60, burst: 15 }
+    keywords: [yahoo, yfinance, free, stock, ticker, symbol]
+    tools:
+      get_historical_data:
+        capability: market-data.ohlcv
+        mutating: false
+        # The canonical bars source, and the reason is depth: nothing else
+        # free goes back twenty years. bar_boundary caching is what stops a
+        # research agent pulling the same daily bar forty times in one task.
+        cache: { bar_boundary: true }
+        keywords: [history, bars, ohlcv, candles, daily, price, chart, over time]
+      get_stock_info:
+        capability: market-data.snapshot
+        mutating: false
+        cache: { ttl_sec: 60 }
+        keywords: [info, snapshot, "market cap", overview, about, current]
+      get_multiple_quotes:
+        capability: market-data.quotes
+        mutating: false
+        cache: { ttl_sec: 30 }
+        # Deliberately a different capability from `market-data.quote`, not a
+        # competitor to it: "price these forty watchlist symbols" is one call
+        # here and forty calls there. Different question, different tool.
+        keywords: [quotes, watchlist, multiple, several, batch, all of]
+      search_stocks:
+        capability: market-data.search
+        mutating: false
+        keywords: [search, find, lookup, ticker, symbol, "what is the ticker"]
+      get_financials:
+        capability: fundamentals.statements
+        mutating: false
+        keywords: [financials, income, balance, "cash flow", statement, revenue]
+      get_earnings:
+        capability: fundamentals.earnings
+        mutating: false
+        keywords: [earnings, eps, quarter, beat, miss, report]
+      get_dividends:
+        capability: corporate.dividends
+        mutating: false
+        keywords: [dividend, dividends, pay, paid, paying, yield, payout,
+                   distribution, ex-date, quarter, quarterly]
+      get_splits:
+        capability: corporate.splits
+        mutating: false
+        keywords: [split, "reverse split", adjusted]
+      get_recommendations:
+        capability: analyst.recommendations
+        mutating: false
+        keywords: [analyst, rating, recommendation, "price target", upgrade,
+                   downgrade, consensus]
+      get_news:
+        capability: news.company
+        mutating: false
+        keywords: [news, headline, story, article, about]
+
+  # --- maverick-mcp: READ THE WARNING BEFORE ADDING A TOOL ----------------
+  #
+  # yfinance underneath, so it costs nothing, and it adds the two things
+  # yfinance has no answer for: **stock screening** and **technical analysis**.
+  # Agent — Screener wants the first and Agent — Market Analyst the second.
+  #
+  # Verified live 2026-09-03: 37 tools offered, 13 registered.
+  #
+  # IT SIZES POSITIONS AND COMPUTES STOPS. Confirmed against the live tool
+  # list, in its own words:
+  #   portfolio_risk_adjusted_analysis    "ATR-based position sizing/stop/target"
+  #   portfolio_check_position_risk       "Pre-trade risk check"
+  #   portfolio_get_regime_adjusted_sizing "Position size scaled by ... regime"
+  #
+  # That is Safety Invariants §3 exactly: position sizing and risk arithmetic
+  # arriving over a socket from somebody else's code. Genesis sizes its own
+  # positions and computes its own stops. And note what is *not* true of these
+  # names: none contains a verb the discovery tripwire catches — "sizing" and
+  # "risk" are not "order" or "delete" — and the server's read-only claim is
+  # honest, since none of them writes anything. Bulk registration would have
+  # catalogued all three and nothing would have fired. The explicit list below
+  # is the only thing standing there.
+  #
+  # It also keeps its own portfolio and trade journal (a second Trade Ledger,
+  # which is proprioceptive drift with a schema) and, with the extras
+  # installed, twelve backtesting tools (a second genesis-backtest-mcp, which
+  # is two answers to "did this strategy work" and no way to tell which is
+  # authoritative).
+  - id: maverick
+    enabled: true
+    transport: stdio
+    command: uv
+    args: ["--directory", "~/.genesis/mcp-servers/maverick-mcp",
+           "run", "maverick-mcp", "--transport", "stdio"]
+    read_only: false          # it can write a portfolio; we take the read half
+    trust: untrusted
+    tier: 3
+    idle_timeout_sec: 900
+    rate_limit: { per_minute: 30, burst: 10 }
+    keywords: [screen, screener, setup, candidate, momentum, technical]
+    tools:
+      screening_get_bullish:
+        capability: screen.bullish
+        mutating: false
+        keywords: [bullish, long, strong, momentum, breakout, buy, candidates]
+      screening_get_bearish:
+        capability: screen.bearish
+        mutating: false
+        keywords: [bearish, short, weak, breakdown, sell]
+      screening_get_supply_demand:
+        capability: screen.supply-demand
+        mutating: false
+        keywords: [supply, demand, breakout, accumulation, base]
+      screening_get_all:
+        capability: screen.all
+        mutating: false
+        keywords: [screen, screens, scan, everything, all, whats, setups]
+      screening_get_by_criteria:
+        capability: screen.criteria
+        mutating: false
+        keywords: [filter, criteria, where, above, below, between]
+      technical_get_rsi_analysis:
+        capability: ta.rsi
+        mutating: false
+        keywords: [rsi, overbought, oversold, momentum]
+      technical_get_macd_analysis:
+        capability: ta.macd
+        mutating: false
+        keywords: [macd, crossover, signal, divergence]
+      technical_get_full_technical_analysis:
+        capability: ta.full
+        mutating: false
+        keywords: [technical, indicators, trend, outlook, "how does it look"]
+      market_data_get_quote:
+        capability: market-data.quote
+        mutating: false
+        cache: { ttl_sec: 15 }
+        # Wins `quote` on the cost tie-break: no key, no account. Delayed, and
+        # that is fine — tier 3 answers "what's it trading at", never "how much
+        # do I buy".
+        keywords: [quote, price, last, trading at, "how much is"]
+      market_data_get_price_history_batch:
+        capability: market-data.ohlcv-batch
+        mutating: false
+        cache: { bar_boundary: true }
+        keywords: [batch, multiple, several, compare, all of these]
+      market_data_get_stock_fundamentals:
+        capability: fundamentals.snapshot
+        mutating: false
+        keywords: [valuation, pe, multiple, stats, fundamentals]
+      market_data_get_market_overview:
+        capability: market-data.overview
+        mutating: false
+        cache: { ttl_sec: 300 }
+        keywords: [market, indices, sectors, movers, breadth, vix, volatility,
+                   look, now, today, doing, overall, broad, tape]
+      portfolio_correlation_analysis:
+        capability: analytics.correlation
+        mutating: false
+        # Correlation is descriptive statistics over returns, not a sizing
+        # decision. It says two things move together; it does not say how much
+        # to buy. The line matters and it is where §3 actually falls.
+        keywords: [correlation, diversification, together, related, hedge]
+      # DELIBERATELY ABSENT — do not add without reading Safety Invariants §3:
+      #   portfolio_risk_adjusted_analysis     ATR sizing, stops, targets   §3
+      #   portfolio_check_position_risk        pre-trade risk check         §3
+      #   portfolio_get_regime_adjusted_sizing regime-scaled position size  §3
+      #   portfolio_get_risk_dashboard,
+      #   portfolio_get_risk_alerts            portfolio risk arithmetic    §3
+      #   portfolio_add_position, portfolio_remove_position,
+      #   portfolio_clear_portfolio,
+      #   portfolio_journal_*, portfolio_get_my_portfolio,
+      #   portfolio_get_strategy_performance   a second Trade Ledger
+      #   portfolio_watchlist_*                a second watchlist store
+      #   backtesting_*                        a second genesis-backtest-mcp
+      #   technical_get_support_resistance     levels are genesis-charting's
+      #   screening_run_screens                recomputes and persists; slow,
+      #                                        and a write
+      #   market_data_clear_market_cache       our cache is ours to invalidate
+      #   market_data_get_chart_links          static URLs, no question answered
+      #   research_*                           an LLM behind an LLM, wants a key
+
+  # Finnhub. A free key, which is the only reason it does not own more here:
+  # the cost tie-break puts "needs nothing" ahead of "needs a free key", so
+  # yfinance and maverick take the overlapping capabilities and this keeps the
+  # two it is uniquely good at.
+  #
+  # `get_stock_candles`, `get_stock_symbol_lookup` and `get_company_news` are
+  # deliberately unregistered — yfinance owns bars, search and company news, and
+  # a second implementation of a capability we already have is context rot with
+  # a rate limit attached.
+  #
+  # NOT YET VERIFIED: the server raises at import without FINNHUB_API_KEY, so
+  # its tool list has not been read back. Get a free key at finnhub.io; until
+  # then `genesis mcp check` reports it as unavailable, which is the truth.
+  - id: stock-market
+    enabled: true
+    transport: stdio
+    command: uv
+    args: ["--directory", "~/.genesis/mcp-servers/stock-market-mcp-server",
+           "run", "stock_market_server.py"]
+    env_keys: [FINNHUB_API_KEY]
+    read_only: true
+    explicit_tools: true
+    trust: untrusted
+    tier: 3
+    idle_timeout_sec: 900
+    rate_limit: { per_minute: 30, burst: 10 }
+    tools:
+      get_basic_financials:
+        capability: fundamentals.metrics
+        mutating: false
+        keywords: [metrics, ratio, margin, roe, growth, "52 week"]
+      get_market_news:
+        capability: news.market
+        mutating: false
+        # The one genuinely market-wide news feed here. yfinance's news is
+        # per-company; "what happened today" has no answer without this.
+        keywords: [news, market, today, happening, general, headlines]
+
+  # --- OpenBB: the largest free source on the list ------------------------
+  #
+  # 113 tools, verified live 2026-09-03, and **no API key for the defaults** —
+  # it falls back to free providers (yfinance for equities, OECD/IMF/BLS/FRED
+  # for macro). Individual tools can be pointed at paid providers, and those
+  # will error at call time without a key; that is a per-call answer, not a
+  # start-up failure, and it is the honest shape for a multi-provider server.
+  #
+  # 24 registered. Registering 113 would be twice the rest of the catalogue
+  # combined, which is the context-rot problem MCP Gateway §2 exists to
+  # prevent — and it was measured on this very config, when curating FRED from
+  # 33 tools to 5 turned selection from wrong to right.
+  #
+  # What is taken is what nothing else here can answer:
+  #
+  #   CALENDARS — earnings, dividends, splits, IPOs, company events. Nothing
+  #     else in the catalogue has these, and they are the backbone of
+  #     Agent — News And Catalyst. This is also what alpha-vantage was wanted
+  #     for, at 25 calls a DAY; here it is free and unmetered. That server is
+  #     now redundant.
+  #   FORWARD ESTIMATES — consensus, price targets, forward EPS. yfinance has
+  #     analyst *recommendations*; it has no forward numbers.
+  #   DISCOVERY SCREENS — gainers, losers, most active, undervalued, growth.
+  #     Different question from maverick's momentum screens, so a different
+  #     namespace entry, not a competitor.
+  #   INDIVIDUAL STATEMENTS — income, balance, cash flow separately and
+  #     as-reported, where yfinance returns all three together. Different
+  #     granularity is a different capability.
+  #   NON-US MACRO — OECD and IMF series FRED does not carry.
+  #
+  # What is deliberately NOT taken:
+  #   install_skill                      writes files into a skills directory
+  #   activate_tools / deactivate_tools  a model changing which tools exist;
+  #                                      the catalogue's shape is the
+  #                                      registry's decision, made at boot
+  #   economy_fred_*                     FRED is wired directly and is better
+  #   equity_fundamental_dividends       yfinance owns corporate.dividends
+  #   *_attributes                       Intrinio, paid
+  #   shipping, chokepoints, most surveys, compare_*   no question anyone asks
+  - id: openbb
+    enabled: true
+    transport: stdio
+    command: uvx
+    args: ["--from", "openbb-mcp-server", "--with", "openbb", "openbb-mcp",
+           "--transport", "stdio",
+           "--default-categories", "equity,news,economy",
+           # The server's OWN ceiling, and the enforcement that matters: a
+           # `tools:` block only filters what we catalogue, where this filters
+           # what exists. Crypto, derivatives, currency and commodity are out
+           # by Open Questions §1 and can be added the day that reopens.
+           "--allowed-categories", "equity,news,economy,etf,index,fixedincome"]
+    read_only: false          # install_skill writes; we take none of that half
+    explicit_tools: true
+    trust: untrusted
+    tier: 3
+    idle_timeout_sec: 1800    # slow to start; keep it warm
+    rate_limit: { per_minute: 60, burst: 15 }
+    keywords: [openbb, calendar, estimates, consensus, screen, fundamentals]
+    tools:
+      # -- Calendars: nothing else in the catalogue has these --------------
+      equity_calendar_earnings:
+        capability: calendar.earnings
+        mutating: false
+        cache: { ttl_sec: 3600 }
+        keywords: [earnings, calendar, when, report, upcoming, reporting, eps]
+      equity_calendar_dividend:
+        capability: calendar.dividends
+        mutating: false
+        cache: { ttl_sec: 3600 }
+        keywords: [dividend, "ex-date", payment, upcoming, calendar]
+      equity_calendar_splits:
+        capability: calendar.splits
+        mutating: false
+        cache: { ttl_sec: 3600 }
+        keywords: [split, upcoming, calendar]
+      equity_calendar_ipo:
+        capability: calendar.ipo
+        mutating: false
+        cache: { ttl_sec: 3600 }
+        keywords: [ipo, listing, debut, "going public", offering]
+      equity_calendar_events:
+        capability: calendar.events
+        mutating: false
+        cache: { ttl_sec: 3600 }
+        keywords: [event, "investor day", "conference call", presentation]
+      economy_calendar:
+        capability: calendar.economic
+        mutating: false
+        cache: { ttl_sec: 3600 }
+        keywords: [economic, calendar, data, release, when, upcoming, macro]
+
+      # -- Forward estimates: yfinance has none of this --------------------
+      equity_estimates_consensus:
+        capability: analyst.consensus
+        mutating: false
+        keywords: [consensus, estimate, expected, street, forecast]
+      equity_estimates_price_target:
+        capability: analyst.price-target
+        mutating: false
+        keywords: [target, "price target", upside, downside, valuation]
+      equity_estimates_forward_eps:
+        capability: analyst.forward-eps
+        mutating: false
+        keywords: [forward, eps, "next year", projected, estimate]
+
+      # -- Discovery screens: a different question from maverick's ---------
+      equity_discovery_gainers:
+        capability: screen.gainers
+        mutating: false
+        cache: { ttl_sec: 300 }
+        keywords: [gainers, up, winners, "biggest movers", top]
+      equity_discovery_losers:
+        capability: screen.losers
+        mutating: false
+        cache: { ttl_sec: 300 }
+        keywords: [losers, down, worst, declining]
+      equity_discovery_active:
+        capability: screen.most-active
+        mutating: false
+        cache: { ttl_sec: 300 }
+        keywords: [active, volume, busiest, "most traded", unusual]
+      equity_discovery_undervalued_large_caps:
+        capability: screen.undervalued
+        mutating: false
+        keywords: [undervalued, cheap, value, discount, "large cap"]
+      equity_discovery_growth_tech:
+        capability: screen.growth-tech
+        mutating: false
+        keywords: [growth, tech, technology, revenue growth]
+      equity_discovery_latest_financial_reports:
+        capability: screen.latest-reports
+        mutating: false
+        keywords: [latest, newest, "just reported", filings, reports]
+
+      # -- Statements, individually and as-reported ------------------------
+      equity_fundamental_income:
+        capability: fundamentals.income
+        mutating: false
+        keywords: [income, "income statement", revenue, profit, operating]
+      equity_fundamental_balance:
+        capability: fundamentals.balance
+        mutating: false
+        keywords: [balance, "balance sheet", assets, liabilities, debt, cash]
+      equity_fundamental_cash:
+        capability: fundamentals.cashflow
+        mutating: false
+        keywords: [cash, "cash flow", fcf, "free cash", operating]
+      equity_fundamental_reported_financials:
+        capability: fundamentals.as-reported
+        mutating: false
+        # As-reported vs standardised is a real distinction, not a synonym:
+        # one is what the company filed, the other is what a vendor normalised.
+        keywords: [reported, "as reported", filed, original]
+      equity_fundamental_historical_eps:
+        capability: fundamentals.eps-history
+        mutating: false
+        keywords: [eps, historical, "earnings per share", track record]
+
+      # -- Macro that FRED does not carry ----------------------------------
+      economy_indicators:
+        capability: macro.indicators
+        mutating: false
+        keywords: [indicator, country, oecd, imf, global, international]
+      economy_available_indicators:
+        capability: macro.indicators-list
+        mutating: false
+        keywords: [available, which, list, indicators, what data]
+      economy_interest_rates:
+        capability: macro.interest-rates
+        mutating: false
+        keywords: [rates, "interest rate", policy, central bank, duration]
+      economy_fomc_documents:
+        capability: macro.fomc
+        mutating: false
+        keywords: [fomc, fed, minutes, statement, dots, powell]
+
+  # --- Paid or account-gated: configured, off -----------------------------
+  #
+  # Not deferred on a decision any more — just not free. Each is one flag and
+  # a key away, and the capabilities below are chosen so that turning one on
+  # never silently unregisters a free tool: where a paid server duplicates a
+  # free one, the duplicate simply is not named.
+
+  # PAID, and now SUPERSEDED. financialdatasets.ai. Verified live
+  # 2026-09-03: 11 tools.
+  #
+  # Every one of them is available free elsewhere in this file: statements from
+  # openbb, prices from yfinance, company news from yfinance, SEC filings from
+  # sec-edgar (which is primary rather than derivative), and crypto is out by
+  # §1. Kept configured because a paid API is worth having a written route to
+  # if a free source degrades — but its capabilities are `vendor-` scoped so
+  # that enabling it can never silently unregister a free tool by winning a
+  # tier contest against it.
+  - id: financial-datasets
+    enabled: false
+    transport: stdio
+    command: uv
+    args: ["--directory", "~/.genesis/mcp-servers/financial-datasets",
+           "run", "server.py"]
+    env_keys: [FINANCIAL_DATASETS_API_KEY]
+    read_only: true
+    explicit_tools: true
+    trust: trusted
+    tier: 3
+    rate_limit: { per_minute: 30, burst: 10 }
+    tools:
+      get_income_statements:    { capability: vendor-financial-datasets.income,   mutating: false }
+      get_balance_sheets:       { capability: vendor-financial-datasets.balance,  mutating: false }
+      get_cash_flow_statements: { capability: vendor-financial-datasets.cashflow, mutating: false }
+
+  # SUPERSEDED by openbb, and this is the clearest win of the batch. Its
+  # unique contribution was the earnings calendar — at **25 calls a DAY**, one
+  # retry loop from useless. openbb serves the same calendar free and
+  # unmetered, so this is kept only as a fallback with a written route.
+  - id: alpha-vantage
+    enabled: false
+    transport: stdio
+    command: uvx
+    args: [alphavantage-mcp]
+    env_keys: [ALPHAVANTAGE_API_KEY]
+    read_only: true
+    capability_prefix: vendor-alpha-vantage
+    keywords: [earnings, calendar, sentiment, indicator, release, upcoming]
+    trust: trusted
+    tier: 3
+    rate_limit: { per_minute: 5, burst: 2 }
+
+  # --- Broker: a free paper account, and the only tier-1 source -----------
+  #
+  # Off because it needs an Alpaca account, not because of any open question.
+  # Market Data Sources settled its role: the venue's own book, tier 1, and the
+  # ONLY source Pre-Trade Risk Engine may ever read. Its data is free on the
+  # Basic plan (IEX, ~2.5% of consolidated volume) — thin for tape reading,
+  # exact for account state, which is the half that matters.
+  #
+  # When it is enabled it takes `market-data.ohlcv` and `market-data.quote`
+  # from the free servers above on tier — correctly. A quote from the venue
+  # beats a quote from Yahoo whenever both exist.
+  #
+  # THREE INDEPENDENT LOCKS ON THE ORDER PATH:
+  #   1. ALPACA_TOOLSETS — the SERVER never exposes the trading tools.
+  #      `place_stock_order` does not exist on the wire, so nothing downstream
+  #      has to be careful. Strongest of the three.
+  #   2. explicit_tools — six named, so a toolset changed by hand does not
+  #      silently catalogue an order tool.
+  #   3. EXECUTION_NAMESPACES — a mutating `order.*` or `broker.*` capability
+  #      is refused outright until the Pre-Trade Risk Engine exists.
+  #
+  # ALPACA_PAPER_TRADE defaults true and is left unset on purpose. Going live
+  # must require BOTH a config change and a live key in a separate env file —
+  # two independent acts, never one flag.
+  - id: alpaca
+    enabled: false
+    transport: stdio
+    command: uvx
+    args: [alpaca-mcp-server]
+    env_keys: [ALPACA_API_KEY, ALPACA_SECRET_KEY]
+    # Behaviour, so it is set here and not read from a shell profile. A safety
+    # decision living in someone's ~/.bashrc is one nobody reviews.
+    env:
+      ALPACA_TOOLSETS: "account,stock-data"
+    read_only: false
+    explicit_tools: true
+    trust: trusted
+    tier: 1
+    rate_limit: { per_minute: 120, burst: 30 }
+    # Tool names verified against the repo 2026-09-03. The previous version of
+    # this block named `get_stock_quote`, `get_stock_snapshot`, `get_account`
+    # and `get_positions` — four names that do not exist. It would have
+    # connected, registered ONE tool, and looked like a server nobody uses.
+    tools:
+      get_stock_bars:         { capability: market-data.ohlcv, mutating: false, cache: { bar_boundary: true } }
+      get_stock_latest_quote: { capability: market-data.quote, mutating: false, cache: { ttl_sec: 1 } }
+      get_stock_snapshot:     { capability: market-data.snapshot, mutating: false, cache: { ttl_sec: 1 } }
+      get_account_info:       { capability: broker.account,   mutating: false, cache: { ttl_sec: 5 } }
+      get_all_positions:      { capability: broker.positions, mutating: false, cache: { ttl_sec: 5 } }
+      get_clock:              { capability: broker.clock,     mutating: false, cache: { ttl_sec: 30 } }
+
+  # --- Desk notification --------------------------------------------------
+  #
+  # The answer to "what happens when the desk is empty" — Genesis speaks aloud
+  # to nobody otherwise. Disabled because it is the one server here that
+  # WRITES, which means `tools:` must name every tool by hand, which means the
+  # names have to be read off a live server first. `capability_prefix` is not
+  # available to it: a bulk-registered write surface is exactly what the
+  # explicit-naming rule exists to prevent.
+  #
+  # Note the trust asymmetry, which is the whole reason this is not casual: a
+  # notification channel is bidirectional. Genesis sends alerts down it, and
+  # whatever a stranger types back arrives as untrusted text — with, later,
+  # `confirm` approvals routed through the same pipe. That is a Phase 7
+  # conversation, not a Phase 3 one.
+  - id: telegram
+    enabled: false
+    transport: stdio
+    command: uvx
+    args: [telegram-mcp]
+    env_keys: [TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]
+    read_only: false
+    trust: untrusted
+    tier: 4
+    tools:
+      # Names are a placeholder until a live tool list is read back. If they
+      # are wrong this server registers nothing, which `genesis mcp check`
+      # reports — the safe direction for a guess to fail in.
+      send_message: { capability: notify.send, mutating: true }
+
+  # --- TradingView Desktop (ours) -----------------------------------------
+  #
+  # genesis-tradingview-mcp. Drives the app on your screen and reads the live
+  # subscription running inside it — a different job entirely from the
+  # headless `tradingview` server above, which does analysis and does not draw.
+  #
+  # Disabled by default, and that is not caution about quality. It needs the
+  # app running with a debugging port, which is a desk-hours condition; the
+  # daemon runs at 3am with no GUI. Biological Design: nothing in the
+  # autonomous loop may hard-depend on a window being open. Turn it on for a
+  # session at the desk; every tool returns `unavailable` rather than hanging
+  # when the app is closed.
+  #
+  # Launch the app as:  tradingview --remote-debugging-port=9222
+  # (and note that ELECTRON_RUN_AS_NODE must not reach the child environment —
+  # the server strips it, but a hand-launch from a VS Code shell will not.)
+  #
+  # `mutating: true` on the two navigation tools is the literal truth: they
+  # change what is on your screen. They are not execution-namespace writes, so
+  # ordinary `allow_writes` reaches them and the absolute gate does not — which
+  # is the distinction the registry draws for exactly this kind of case.
+  #
+  # Trust is `untrusted` and it is worth saying why for a server we wrote:
+  # trust is a property of the CONTENT, not of the authorship. What comes back
+  # is scraped out of a third-party web app whose text we do not control, so it
+  # is fenced. A server being ours buys correctness, not credulity.
+  - id: genesis-tradingview
+    enabled: false
+    transport: stdio
+    command: genesis-tradingview-mcp
+    read_only: false
+    trust: untrusted
+    tier: 2
+    idle_timeout_sec: 1800
+    tools:
+      open_symbol:    { capability: chart.symbol,     mutating: true }
+      set_timeframe:  { capability: chart.timeframe,  mutating: true }
+      # Deliberately NOT market-data.quote. Market Data Plane makes
+      # genesis-marketdata-mcp the only owner of that namespace, fed by a
+      # store; this is a GUI scrape, tier 2, and naming it market-data would
+      # enter it into a capability contest it must never win.
+      quote:          { capability: chart.quote,      mutating: false, cache: { ttl_sec: 2 } }
+      watchlist:      { capability: chart.watchlist,  mutating: false, cache: { ttl_sec: 30 } }
+      # Bars out of the subscription already running in the app. Same reason
+      # `quote` is not `market-data.quote`: genesis-marketdata-mcp owns that
+      # namespace, and this is a GUI-side read of a paid feed, not the store.
+      # No cache — a bar window is cheap to re-read and a stale one is a
+      # wrong chart.
+      ohlcv:          { capability: chart.ohlcv,      mutating: false }
+      screenshot:     { capability: chart.screenshot, mutating: false }
+      # The script tools. `mutating: true` is literal: they change what is
+      # drawn on your screen and what is in your script library. They are not
+      # execution-namespace writes — the strategy reflex in surface.py refuses
+      # the one kind of Pine that could reach a broker, before it is sent.
+      write_pine:     { capability: chart.script.write, mutating: true }
+      add_to_chart:   { capability: chart.script.apply, mutating: true }
+      read_pine:      { capability: chart.script.read,  mutating: false }
+      self_test:      { capability: chart.self-test,  mutating: false }
+      status:         { capability: chart.status,     mutating: false, cache: { ttl_sec: 5 } }
+
+  # mcp-market-data-server. Volume profile, 15+ indicators, ORB, fair-value-gap
+  # analysis. Named by MCP Server Catalog as the structural-level workhorse for
+  # Agent — Chart Markup and Agent — Screener.
+  #
+  # NOT INSTALLABLE as written. `uvx mcp-market-data-server` resolves to
+  # something that dies on start-up (tried 2026-09-03: the session closes
+  # immediately), so the PyPI name in this entry is wrong or the package is
+  # gone. Left here with the name that failed rather than deleted, so the next
+  # person does not spend the same twenty minutes discovering it.
+  # Next step: find the repo (fintools-ai) and run it from a clone, as the
+  # three source-only servers above are run.
+
+  - id: market-data
+    enabled: false
+    transport: stdio
+    command: uvx
+    args: [mcp-market-data-server]
+    read_only: true
+    # Placeholder namespace, and deliberately not `market-data`: Market Data
+    # Plane gives genesis-marketdata-mcp sole ownership of that one, and a
+    # disabled server holding a claim on it would be a contest waiting to
+    # happen the moment somebody flipped the flag.
+    capability_prefix: vendor-market-data
+    trust: untrusted
+    tier: 3
+
+  # genesis-charting-mcp. Ours, and the reason it has to be ours is in the
+  # note: the Markup Spec is a Genesis concept no third-party server knows
+  # about; rendering must be deterministic and identical across the vault, the
+  # dashboard and vision input; and `diff_spec` is only possible because specs
+  # are immutable objects we control.
+  #
+  # `trust: trusted` — unlike genesis-tradingview, which is ours and untrusted.
+  # The distinction is content, not authorship: tradingview returns text
+  # scraped from a third-party web app, while everything this server returns is
+  # arithmetic over bars, computed in-process. Nothing here echoes anyone's
+  # prose back at a model.
+  #
+  # Every tool takes a symbol or a spec id. None takes bars. A tool argument is
+  # written by a language model, so an argument big enough to hold two hundred
+  # bars is two hundred rows of context spent before the first level is
+  # computed — Orchestrator Tools: "moves ids and summaries, never rows".
+  #
+  # Enabled by default and headless by design: the 3am market-closed loop marks
+  # up charts through this server, and nothing in it needs a window open.
+  - id: genesis-charting
+    enabled: true
+    transport: stdio
+    command: genesis-charting-mcp
+    read_only: false          # it writes PNGs into the vault and specs into its store
+    trust: trusted
+    tier: 3                   # levels are only as good as the bars beneath them
+    idle_timeout_sec: 1800
+    keywords: [chart, level, support, resistance, markup, render, draw, plot,
+               structure, trend, pine, sector, correlation, heatmap]
+    tools:
+      chart:
+        capability: genesis-charting.chart
+        mutating: true        # renders a file and stores a spec
+        keywords: [chart, "mark up", markup, levels, draw, "chart me"]
+      compute_levels:
+        capability: genesis-charting.compute_levels
+        mutating: false
+        keywords: [levels, support, resistance, vwap, poc, "value area"]
+      structure:
+        capability: genesis-charting.structure
+        mutating: false
+        keywords: [structure, trend, swing, range, contraction, adx]
+      render_spec:
+        capability: genesis-charting.render
+        mutating: true
+        keywords: [render, redraw, image, png]
+      render_composite:
+        capability: genesis-charting.render_composite
+        mutating: true
+        keywords: [composite, "multi timeframe", timeframes, ladder]
+      diff_spec:
+        capability: genesis-charting.diff_spec
+        mutating: true
+        keywords: [held, "hold up", outcome, "how did", broke, since]
+      compile_pine:
+        capability: genesis-charting.compile_pine
+        mutating: false
+        keywords: [pine, pinescript, tradingview, indicator, script]
+      render_analytics:
+        capability: genesis-charting.render_analytics
+        mutating: true
+        keywords: [bar, "bar chart", line, plot, sectors, macro, heatmap,
+                   correlation, compare, graph]
+      lineage:
+        capability: genesis-charting.lineage
+        mutating: false
+        keywords: [lineage, history, evolved, previous, parent]

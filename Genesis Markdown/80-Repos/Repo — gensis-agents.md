@@ -80,7 +80,7 @@ alert / indicator split.
 | gensis-agents | Genesis |
 |---|---|
 | Agents are HTTP services on their own ports | Agents are supervised workers on a [[Task Bus]] |
-| Dashboard is the primary input | **Voice is primary**; dashboard is detail ([[Orchestrator]]) |
+| Dashboard is the primary input | **The command line is primary**, voice is its peer; panels are what a question opened ([[Operating Model]]) |
 | 4 agents, 3 stubs | ~30 agents in 5 families ([[Agent Index]]) |
 | No execution | Full execution behind [[Pre-Trade Risk Engine]] |
 | No memory layer | Five-layer [[Memory Fabric]] |

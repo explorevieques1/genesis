@@ -81,6 +81,45 @@ def plan_routes() -> list[Any]:
         ]}
 
     @_guard
+    async def trade_ideas(request: Request) -> dict[str, Any]:
+        """Everything `TI` shows: ranked ideas with the gate's size, and what is watched.
+
+        One route rather than three, because the merge is the interesting part
+        and it belongs where the data is. The ideas come from the plan, which
+        means the size beside each one is the **risk gate's own dry run** of
+        that ticket -- not a second sizing implementation that agrees with the
+        gate until the day it does not.
+
+        Afferent, all of it. A dry run mints no approval and records nothing;
+        acting on an idea is still `/v1/exec/propose` then `/v1/exec/place`.
+        """
+        from genesis.news.ideas import NEWS_AUTHOR
+
+        agent = open_agent()
+        plan, _ = await run_in_threadpool(lambda: agent.build(save=False))
+        extra = await run_in_threadpool(_idea_extras, agent.store)
+
+        items = []
+        for item in plan.to_dict()["items"]:
+            items.append({**item, **extra.get(item["idea_id"], {})})
+        return {
+            # `available`, not `ok`. Every read route in this server is
+            # discriminated by it, and `useRead` treats a body without it as
+            # *absent* — data `null`, which is how the panel crashed reading
+            # `.actionable` off nothing. `ok` is the write routes' shape and is
+            # kept only so the CLI's existing callers still read it.
+            "available": True,
+            "ok": True,
+            "as_of": plan.as_of,
+            "ideas": items,
+            "watching": await run_in_threadpool(_watching, agent.store),
+            "desk": list(plan.desk),
+            "degraded": list(plan.degraded),
+            "actionable": len(plan.actionable),
+            "news_author": NEWS_AUTHOR,
+        }
+
+    @_guard
     async def look(request: Request) -> dict[str, Any]:
         """Build a plan and show it. Saves nothing -- looking is not writing."""
         agent = open_agent()
@@ -110,8 +149,70 @@ def plan_routes() -> list[Any]:
                 "vault_path": note.vault_path() if note else None}
 
     return [
+        Route("/v1/trade-ideas", trade_ideas),
         Route("/v1/ideas", ideas),
         Route("/v1/ideas", add_idea, methods=["POST"]),
         Route("/v1/plan", look),
         Route("/v1/plan", save, methods=["POST"]),
     ]
+
+
+def _idea_extras(store: Any) -> dict[str, dict[str, Any]]:
+    """Per-idea detail the plan does not carry: where it came from.
+
+    A news idea without its story is an assertion. The `TI` module shows the
+    brief behind each one so the trader can read what the model read -- which
+    is the difference between advice and an instruction from a stranger.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for note in store.notes(kind="idea", limit=100):
+        data = note.data or {}
+        out[note.id] = {
+            "created": note.created.isoformat() if hasattr(note.created, "isoformat") else str(note.created),
+            "summary": note.summary,
+            "brief_id": data.get("brief_id"),
+            "brief_title": data.get("brief_title"),
+            "symbols": data.get("symbols") or [],
+            "conflicts_text": data.get("conflicts") or "",
+            "evidence": list(data.get("evidence") or []),
+            "stop_price": data.get("stop_price"),
+            "entry_zone": data.get("entry_zone"),
+            "targets": list(data.get("targets") or []),
+            # The whole computation behind the prices: ATR, trend, the levels
+            # it chose between and the one it placed the stop beyond. `TI`
+            # shows it because an idea that cannot show its work is an
+            # assertion, and this one came from a model reading the news.
+            "chart_setup": data.get("chart_setup"),
+            # How the symbol was found. An idea the brief wrote and one this
+            # system extracted from its prose are different claims, and the
+            # card must not present them as the same thing.
+            "found_by": data.get("found_by"),
+            "vault_path": note.vault_path() if hasattr(note, "vault_path") else None,
+        }
+    return out
+
+
+def _watching(store: Any) -> list[dict[str, Any]]:
+    """The brief's `watch` items: a reason to look, with no side.
+
+    Kept apart from the ideas on purpose. They have no direction, so nothing
+    can size one -- and a watch item shown in the same lane as a tradeable idea
+    is how "something is happening here" becomes a position.
+    """
+    out: list[dict[str, Any]] = []
+    for note in store.notes(kind="finding", limit=60):
+        data = note.data or {}
+        if data.get("bias") != "watch" or data.get("status", "active") != "active":
+            continue
+        out.append({
+            "id": note.id,
+            "symbol": data.get("symbol") or "",
+            "symbols": data.get("symbols") or [],
+            "idea": data.get("idea") or note.summary,
+            "rationale": data.get("rationale") or "",
+            "invalidation": data.get("invalidation") or "",
+            "brief_id": data.get("brief_id"),
+            "brief_title": data.get("brief_title"),
+            "created": note.created.isoformat() if hasattr(note.created, "isoformat") else str(note.created),
+        })
+    return out

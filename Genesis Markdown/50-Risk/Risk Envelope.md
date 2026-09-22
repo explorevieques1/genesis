@@ -2,7 +2,7 @@
 title: Risk Envelope
 tags: [risk, schema]
 status: building
-implemented_by: [src/genesis/config.py]
+implemented_by: [src/genesis/config.py, src/genesis/marketdata/universe.py, tests/marketdata/test_universe.py]
 ---
 
 # Risk Envelope
@@ -145,6 +145,45 @@ max_price_deviation_pct: 2.0      # fat-finger band against the arrival quote
 `session_window` stays for equities; futures use the contract's own trading
 hours as IBKR reports them. Not yet built: envelope signing and versioning,
 weekly loss, max drawdown, per-strategy envelopes.
+
+## The equity universe (2026-09-20)
+
+A news brief names `SPY`, `NVDA`, `CVX` — never `MNQ`. With a futures-only
+allow-list, *every* idea the news pipeline produced was refused before it could
+be sized, which made the whole path decorative.
+
+```yaml
+equity_universe: true    # adds the S&P 500 and the core ETFs to the roots above
+```
+
+Membership is **resolved in advance, into a file**, by `genesis universe
+refresh` — SSGA's daily SPY holdings, the same deterministic source
+[[Index Movers]] uses. The gate keeps doing exactly what it did: one set
+membership test.
+
+> [!important] The allow-list check is a reflex, so it may not make a network call
+> Resolving "the S&P 500" at check time would put an HTTP request with a
+> timeout inside the fastest path in the system, on every order. A gate that
+> cannot answer must fail closed, so a slow vendor would become a desk that
+> cannot trade. The snapshot is written deliberately and read from disk.
+
+**Both failure directions are closed.** A missing or unreadable snapshot yields
+the futures roots plus the core ETFs — never "everything", and never an empty
+list, which would refuse the futures the desk already trades. A snapshot older
+than seven days is reported stale with its age: a company removed from the index
+last month is one nobody meant to permit.
+
+**"All ETFs" is not enumerable and the code does not pretend otherwise.** There
+is no free, authoritative list of every US ETF, and a guess would be an
+allow-list with holes — the worst shape for a safety control. `CORE_ETFS` is the
+liquid set a brief actually names; anything else is added by hand.
+
+> [!warning] `max_contracts_per_symbol` is a futures limit applied to shares
+> An equity idea is currently sized to **2 shares**, because the cap that stops
+> two NQ contracts is the same number. It is not dangerous — it errs small —
+> but it is not a position either. Equity sizing wants the percent-of-equity
+> rule the checks above already state; until then, sizes on equity ideas are
+> honest and useless.
 
 ## Related
 

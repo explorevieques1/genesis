@@ -35,6 +35,15 @@ export interface VoiceReply {
    * `null`; typing it as optional made the two paths disagree at the boundary.
    */
   detail?: string | null
+  /**
+   * `CommandResult.data`. Small, flat and command-specific.
+   *
+   * This is how Genesis drives the workspace: the canvas command returns the
+   * id of the canvas it opened, and the shell puts that panel on screen. Per
+   * Operating Model §3 it is the *same* dock API a person uses — one function,
+   * two callers, no private channel.
+   */
+  data?: Record<string, string> | null
   ms?: number
 }
 

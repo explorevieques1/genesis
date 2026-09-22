@@ -31,6 +31,9 @@ from decimal import Decimal, InvalidOperation
 __all__ = [
     "PRONOUNCED_TICKERS",
     "say_confidence",
+    "say_date",
+    "say_ordinal",
+    "say_year",
     "say_money",
     "say_multiple",
     "say_percent",
@@ -209,10 +212,14 @@ def say_money(value: Decimal | str | int) -> str:
     d = abs(d)
     whole = int(d)
     cents = int((d - whole) * 100)
-    unit = "dollar" if whole == 1 and not cents else "dollars"
+    # The unit agrees with the dollar count alone: "$1.50" is "one dollar
+    # fifty", never "one dollars fifty". Cents do not make the dollar plural.
+    unit = "dollar" if whole == 1 else "dollars"
     if not cents:
         return f"{sign}{_cardinal(whole)} {unit}"
-    return f"{sign}{_cardinal(whole)} {unit} {_under_100(cents)}"
+    # Shares the price convention so "$1.05" is "one dollar oh five" rather
+    # than "one dollar five", which a listener hears as $1.50.
+    return f"{sign}{_cardinal(whole)} {unit} {_say_cents(f'{cents:02d}')}"
 
 
 def say_percent(value: Decimal | str | int, *, directional: bool = True) -> str:
@@ -276,6 +283,113 @@ def say_time(text: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# Ordinals, years and dates
+# --------------------------------------------------------------------------
+#
+# A year is not a number, and a day of the month is not a count. ``1993`` read
+# as a cardinal is *"one thousand nine hundred ninety-three"* -- which is not
+# wrong so much as not English, and it takes three times as long to say as
+# *"nineteen ninety-three"*. Same failure the module's opening docstring
+# describes for prices: the wrong rendering is longer, harder to hear, and not
+# the form the listener's ear is trained on.
+#
+# The hard part is not the arithmetic. It is knowing that ``1995`` is a year
+# here and a share count there, which is why :func:`speakable` requires a
+# positive signal before it treats a bare number as a year -- see
+# :data:`_YEAR_CUES`.
+
+_ORDINALS = (
+    "zeroth", "first", "second", "third", "fourth", "fifth", "sixth",
+    "seventh", "eighth", "ninth", "tenth", "eleventh", "twelfth",
+    "thirteenth", "fourteenth", "fifteenth", "sixteenth", "seventeenth",
+    "eighteenth", "nineteenth",
+)
+_TENS_ORDINAL = (
+    "", "", "twentieth", "thirtieth", "fortieth", "fiftieth", "sixtieth",
+    "seventieth", "eightieth", "ninetieth",
+)
+
+MONTHS: dict[str, int] = {
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11,
+    "december": 12,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8,
+    "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June", "July",
+    "August", "September", "October", "November", "December",
+)
+
+
+def say_ordinal(n: int) -> str:
+    """``5`` -> *"fifth"*; ``21`` -> *"twenty-first"*; ``30`` -> *"thirtieth"*."""
+    if n < 0:
+        raise ValueError(f"no ordinal for {n}")
+    if n < 20:
+        return _ORDINALS[n]
+    if n < 100:
+        tens, ones = divmod(n, 10)
+        if ones == 0:
+            return _TENS_ORDINAL[tens]
+        return f"{_TENS[tens]}-{_ORDINALS[ones]}"
+    # Beyond a day of the month this is vanishingly rare; say the cardinal and
+    # suffix it rather than inventing a rule nobody will hear used.
+    return f"{_cardinal(n)}th"
+
+
+def say_year(n: int) -> str:
+    """``1993`` -> *"nineteen ninety-three"*; ``2026`` -> *"twenty twenty-six"*.
+
+    The conventions people actually use, which are not one rule:
+
+    ==========  =========================
+    ``2000``    two thousand
+    ``2005``    two thousand five
+    ``2026``    twenty twenty-six
+    ``1900``    nineteen hundred
+    ``1905``    nineteen oh five
+    ``1993``    nineteen ninety-three
+    ==========  =========================
+
+    Outside 1000-2999 it falls back to the cardinal, because *"three oh five"*
+    for ``305`` would be a confident answer to a question nobody asked.
+    """
+    if not 1000 <= n <= 2999:
+        return _cardinal(n)
+    century, rest = divmod(n, 100)
+
+    if rest == 0:
+        # 2000 is "two thousand"; 1900 is "nineteen hundred". The difference is
+        # whether the century is a round multiple of ten.
+        if century % 10 == 0:
+            return f"{_cardinal(century // 10)} thousand"
+        return f"{_cardinal(century)} hundred"
+
+    if century % 10 == 0:
+        # The 2000s: "two thousand five", then "twenty twenty-six" from 2010.
+        if rest < 10:
+            return f"{_cardinal(century // 10)} thousand {_ONES[rest]}"
+        return f"{_cardinal(century)} {_under_100(rest)}"
+
+    if rest < 10:
+        return f"{_cardinal(century)} oh {_ONES[rest]}"
+    return f"{_cardinal(century)} {_under_100(rest)}"
+
+
+def say_date(year: int | None, month: int, day: int | None) -> str:
+    """Assemble a spoken date from parts that are already known.
+
+    *"April fifth, nineteen ninety-three"*. The day is an ordinal because that
+    is how a date is said aloud -- *"April five"* is how a form is read, not
+    how a person speaks.
+    """
+    name = _MONTH_NAMES[month - 1]
+    parts = name if day is None else f"{name} {say_ordinal(day)}"
+    return parts if year is None else f"{parts}, {say_year(year)}"
+
+
+# --------------------------------------------------------------------------
 # Tickers
 # --------------------------------------------------------------------------
 
@@ -308,18 +422,75 @@ def say_ticker(symbol: str) -> str:
 # Whole-sentence rewriting
 # --------------------------------------------------------------------------
 
+#: Month names, longest first so ``June`` is not matched as ``Jun``.
+_MONTH_ALT = "|".join(sorted(MONTHS, key=len, reverse=True))
+
+#: Words that make a following 19xx/20xx a **year** rather than a quantity.
+#:
+#: This list is the whole reason dates are safe to speak in a trading system.
+#: ``1995`` is a year in *"founded in 1995"* and a share count in *"sold 1995
+#: shares"*, and nothing about the digits distinguishes them. So a bare number
+#: is left alone unless something nearby says otherwise: the default stays the
+#: cardinal, and a missing cue costs a clumsy reading rather than a wrong one.
+#:
+#: Deliberately excludes ``at``, ``to`` and ``of`` — *"filled at 2000"* is a
+#: price, and reading it as a year would be exactly the failure this guards.
+_YEAR_CUES = (
+    "in|since|from|until|through|during|before|after|by"
+    "|founded|established|incorporated|launched|circa"
+    "|year|fiscal|FY|Q1|Q2|Q3|Q4"
+)
+
 _TOKEN = re.compile(
-    r"""
+    rf"""
       (?P<money>\$-?\d[\d,]*(?:\.\d+)?)
     | (?P<percent>[-+]?\d[\d,]*(?:\.\d+)?%)
     | (?P<r>[-+]\d+(?:\.\d+)?R\b)
     | (?P<mult>\d+(?:\.\d+)?x\b)
-    | (?P<time>\b\d{1,2}:\d{2}\b)
-    | (?P<ticker>\b[A-Z]{1,5}\b)
+    | (?P<iso>\b\d{{4}}-\d{{2}}-\d{{2}}\b)
+    | (?P<usdate>\b\d{{1,2}}/\d{{1,2}}/\d{{2,4}}\b)
+    | (?P<mdy>\b(?:{_MONTH_ALT})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}\b)
+    | (?P<dmy>\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTH_ALT})\.?,?\s+\d{{4}}\b)
+    | (?P<md>\b(?:{_MONTH_ALT})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b)
+    | (?P<cueyear>\b(?:{_YEAR_CUES})\s+(?:19|20)\d{{2}}\b)
+    | (?P<time>\b\d{{1,2}}:\d{{2}}\b)
+    | (?P<ticker>\b[A-Z]{{1,5}}\b)
     | (?P<number>-?\d[\d,]*(?:\.\d+)?)
     """,
-    re.VERBOSE,
+    re.VERBOSE | re.IGNORECASE,
 )
+
+#: Groups above that must keep their case-sensitive meaning. ``_TOKEN`` is
+#: IGNORECASE so month names match in any casing, which would otherwise make
+#: every lowercase word a candidate ticker.
+_CASE_SENSITIVE = ("ticker",)
+
+_DATE_PARTS = re.compile(rf"({_MONTH_ALT})|(\d+)", re.IGNORECASE)
+
+
+def _date_from(raw: str, *, order: str) -> str:
+    """Pull month, day and year out of a matched date however it was written."""
+    month = day = year = None
+    numbers: list[int] = []
+    for name, digits in _DATE_PARTS.findall(raw):
+        if name:
+            month = MONTHS[name.lower()]
+        else:
+            numbers.append(int(digits))
+    if order == "iso":
+        year, month, day = numbers[0], numbers[1], numbers[2]
+    elif order == "us":
+        month, day = numbers[0], numbers[1]
+        year = numbers[2] if len(numbers) > 2 else None
+        if year is not None and year < 100:  # 9/2/26
+            year += 2000
+    else:  # a month name carried the month; the digits are day and maybe year
+        day = numbers[0] if numbers else None
+        if len(numbers) > 1:
+            year = numbers[1]
+        if order == "dmy" and len(numbers) > 1:
+            day, year = numbers[0], numbers[1]
+    return say_date(year, month, day)
 
 #: Uppercase words that are not tickers. Without this every ``R`` and ``NVDA
 #: long`` sentence turns "OK" into "O-K".
@@ -356,9 +527,23 @@ def speakable(text: str) -> str:
                 return say_r_multiple(raw[:-1])
             if kind == "mult":
                 return say_multiple(raw[:-1])
+            if kind == "iso":
+                return _date_from(raw, order="iso")
+            if kind == "usdate":
+                return _date_from(raw, order="us")
+            if kind in ("mdy", "md"):
+                return _date_from(raw, order="mdy")
+            if kind == "dmy":
+                return _date_from(raw, order="dmy")
+            if kind == "cueyear":
+                # Keep the cue word; only the year is rewritten.
+                cue, _, digits = raw.rpartition(" ")
+                return f"{cue} {say_year(int(digits))}"
             if kind == "time":
                 return say_time(raw)
             if kind == "ticker":
+                if raw != raw.upper():
+                    return raw  # IGNORECASE matched a lowercase word
                 return raw if raw in _NOT_TICKERS else say_ticker(raw)
             if kind == "number":
                 cleaned = raw.replace(",", "")

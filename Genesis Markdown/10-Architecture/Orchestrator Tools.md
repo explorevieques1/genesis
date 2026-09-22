@@ -2,7 +2,7 @@
 title: Orchestrator Tools
 tags: [architecture, core]
 status: built
-implemented_by: [src/genesis/orchestrator/tools.py, src/genesis/orchestrator/runner.py]
+implemented_by: [src/genesis/orchestrator/tools.py, src/genesis/orchestrator/runner.py, tests/orchestrator/test_runner.py, tests/orchestrator/test_tools.py]
 ---
 
 # Orchestrator Tools

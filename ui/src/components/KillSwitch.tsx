@@ -23,11 +23,13 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 import { useGenesis } from '@/store/useGenesis'
 
-const KILL_URL = (import.meta.env.VITE_GENESIS_KILL as string | undefined) ?? ''
+// The kill switch process `genesis serve` starts (execution.killswitch_port).
+// Override with VITE_GENESIS_KILL; an empty value still means "not configured".
+const KILL_URL = (import.meta.env.VITE_GENESIS_KILL as string | undefined) ?? 'http://127.0.0.1:8766'
 
 type Phase = 'idle' | 'armed' | 'firing' | 'sent' | 'failed'
 
-export const KillSwitch = memo(function KillSwitch() {
+export const KillSwitch = memo(function KillSwitch({ compact = false }: { compact?: boolean } = {}) {
   const halted = useGenesis((s) => s.safety.halted)
   const trigger = useGenesis((s) => s.safety.haltTrigger)
   const [phase, setPhase] = useState<Phase>('idle')
@@ -70,14 +72,18 @@ export const KillSwitch = memo(function KillSwitch() {
   if (halted) {
     return (
       <div
-        className="flex flex-col justify-center px-3"
-        style={{ background: 'var(--state-down)', color: '#fff', minWidth: 190 }}
+        className={compact ? 'flex items-center gap-2 px-3' : 'flex flex-col justify-center px-3'}
+        style={{ background: 'var(--state-down)', color: '#fff', minWidth: compact ? undefined : 190 }}
+        title={compact ? `system halted — ${trigger ?? 'trigger unknown'}` : undefined}
       >
-        <div className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>system</div>
-        <div className="num" style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, letterSpacing: '0.08em' }}>
+        {!compact && <div className="label" style={{ color: 'rgba(255,255,255,0.8)' }}>system</div>}
+        <div
+          className="num"
+          style={{ fontSize: compact ? 'var(--fs-sm)' : 'var(--fs-lg)', fontWeight: 700, letterSpacing: '0.08em' }}
+        >
           HALTED
         </div>
-        <div style={{ fontSize: 'var(--fs-micro)' }}>{trigger ?? 'trigger unknown'}</div>
+        {!compact && <div style={{ fontSize: 'var(--fs-micro)' }}>{trigger ?? 'trigger unknown'}</div>}
       </div>
     )
   }
@@ -88,9 +94,9 @@ export const KillSwitch = memo(function KillSwitch() {
     // `justify-center` then clips the BUTTON — the one control that must never
     // be unavailable. The note may be truncated; the control may not.
     <div
-      className="flex flex-col justify-center px-3"
+      className={compact ? 'flex items-center gap-2 px-3' : 'flex flex-col justify-center px-3'}
       style={{
-        background: 'var(--bg-panel)', minWidth: 208,
+        background: 'var(--bg-panel)', minWidth: compact ? undefined : 208,
         overflow: 'hidden', flexShrink: 0,
       }}
     >
@@ -106,7 +112,7 @@ export const KillSwitch = memo(function KillSwitch() {
             border: `1px solid ${phase === 'armed' ? 'var(--verdict-blocked)' : 'var(--hairline-bright)'}`,
             background: phase === 'armed' ? 'var(--verdict-blocked)' : 'transparent',
             color: phase === 'armed' ? '#fff' : 'var(--verdict-blocked)',
-            padding: '3px 12px',
+            padding: compact ? '0 9px' : '3px 12px',
             borderRadius: 'var(--r-sm)',
             fontSize: 'var(--fs-sm)',
             fontWeight: 700,
@@ -124,6 +130,7 @@ export const KillSwitch = memo(function KillSwitch() {
           </button>
         )}
       </div>
+      {!compact && (
       <div
         style={{
           fontSize: 'var(--fs-micro)',
@@ -139,6 +146,20 @@ export const KillSwitch = memo(function KillSwitch() {
       >
         {detail ?? 'separate process'}
       </div>
+      )}
+      {compact && detail && (
+        <span
+          className="label"
+          title={detail}
+          style={{
+            color: phase === 'failed' ? 'var(--state-down)' : 'var(--ink-faint)',
+            maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            textTransform: 'none', letterSpacing: 0,
+          }}
+        >
+          {detail}
+        </span>
+      )}
     </div>
   )
 })

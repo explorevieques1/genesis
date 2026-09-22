@@ -200,7 +200,18 @@ def build_app(bus: EventBus | None = None) -> Any:
         )
 
     async def health(request: Request) -> JSONResponse:
-        return JSONResponse({"ok": True, "idle": True})
+        """Is this server up, *and* is there a fleet behind it?
+
+        The second half is the one that matters. This used to return a
+        constant, so it answered "is something listening on 8765" and nothing
+        else -- and for two days something was listening while every cron,
+        workflow and agent was gone. `ok` stays true whenever the HTTP server
+        can answer, because `./genesis up` waits on it to decide the process
+        started; the fleet gets its own field and its own truth.
+        """
+        from genesis.server.fleet import FLEET_STATE
+
+        return JSONResponse({"ok": True, "fleet": FLEET_STATE.as_dict()})
 
     # -- writes: HTTP, because they act and must answer -------------------
 
@@ -307,6 +318,7 @@ def build_app(bus: EventBus | None = None) -> Any:
     from genesis.server.automation_routes import automation_routes
     from genesis.server.backtest_routes import backtest_routes
     from genesis.server.broker_routes import broker_routes
+    from genesis.server.browser_routes import browser_routes
     from genesis.server.execution_routes import execution_routes
     from genesis.server.plan_routes import plan_routes
     from genesis.server.symbol_routes import symbol_routes
@@ -433,6 +445,9 @@ def build_app(bus: EventBus | None = None) -> Any:
             # Efferent; every order passes the risk engine. See the module.
             *execution_routes(),
             *plan_routes(),
+            # The `WEB` panel: a real browser beside the daemon, streamed
+            # into a dock panel. No tool, no capability -- see the module.
+            *browser_routes(),
         ],
         middleware=[
             # The Vite dev server is a different origin on the same host.

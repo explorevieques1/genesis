@@ -4,8 +4,8 @@ tags: [agent, journal]
 family: journal
 cadence: market-closed
 tier: large
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/journal/insight_miner.py, src/genesis/journal/patterns.py, tests/journal/test_patterns.py, tests/journal/test_agents.py, ui/src/workspace/panels/journal.tsx]
 ---
 
 # ⛏️ Agent — Insight Miner

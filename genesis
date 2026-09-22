@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Spec: Genesis Markdown/60-UI/UI Stack.md  §Build state — the local dev loop
+#
+# Boot loader. The daemon (and its ~15 MCP servers) runs detached and outlives
+# vite, so restarting the UI never re-boots the fleet. Backend edits are picked
+# up only when you say so: `./genesis reload`.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HEALTH="http://127.0.0.1:8765/v1/health"
+STATE="$HOME/.genesis"
+LOG="$STATE/logs/serve.log"
+
+healthy() { curl -fsS -m 1 "$HEALTH" >/dev/null 2>&1; }
+# The fleet is a separate question from the port, and the expensive kind of
+# outage is the one where the port answers and the fleet is gone: crons stop,
+# workflows stop, agents stop, and `status` used to say `healthy` throughout.
+fleet() { curl -fsS -m 2 "$HEALTH" 2>/dev/null | sed -n 's/.*"state": *"\([a-z]*\)".*/\1/p'; }
+fleet_detail() { curl -fsS -m 2 "$HEALTH" 2>/dev/null | sed -n 's/.*"detail": *"\([^"]*\)".*/\1/p'; }
+# Whoever holds the port is the daemon. A saved $! is not: the entry point is a
+# sh trampoline, and killing it orphans the Python process still serving 8765.
+pid() { ss -Hltnp 'sport = :8765' | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2; }
+
+start() {
+  if healthy; then echo "daemon already up (pid $(pid))"; return; fi
+  mkdir -p "$(dirname "$LOG")"
+  echo "--- $(date -Is) genesis serve" >>"$LOG"
+  (cd "$ROOT" && nohup .venv/bin/genesis serve >>"$LOG" 2>&1 &)
+  printf 'starting daemon'
+  for _ in $(seq 60); do
+    if healthy; then echo " — up (pid $(pid), logs: ./genesis logs)"; return; fi
+    printf '.'; sleep 0.5
+  done
+  echo " — not healthy after 30s. Last lines of $LOG:"; tail -20 "$LOG"; exit 1
+}
+
+stop() {
+  local p; p="$(pid)"
+  [[ -n $p ]] || { echo "no daemon on 8765"; return; }
+  kill -TERM "$p"
+  # Wait for exit, or the new process loses the port race. Shutdown stops the
+  # MCP children, which can take a few seconds.
+  for _ in $(seq 40); do kill -0 "$p" 2>/dev/null || break; sleep 0.5; done
+  kill -0 "$p" 2>/dev/null && { echo "pid $p ignored SIGTERM, killing"; kill -KILL "$p"; }
+  echo "daemon stopped (pid $p)"
+}
+
+case "${1:-up}" in
+  up)     start; exec npm --prefix "$ROOT/ui" run dev ;;
+  daemon) start ;;
+  reload) stop; start ;;
+  down)   stop ;;
+  logs)   exec tail -n 50 -f "$LOG" ;;
+  status)
+    healthy || { echo "down"; exit 1; }
+    f="$(fleet)"
+    case "$f" in
+      up)       echo "healthy (pid $(pid)) — fleet up" ;;
+      starting) echo "healthy (pid $(pid)) — fleet still starting" ;;
+      disabled) echo "healthy (pid $(pid)) — no fleet (--no-daemon)" ;;
+      failed)   echo "DEGRADED (pid $(pid)) — the fleet did not start: $(fleet_detail)"
+                echo "  no crons, no workflows, no agents. ./genesis logs for the rest."
+                exit 1 ;;
+      *)        echo "healthy (pid $(pid)) — fleet state unknown (old daemon? ./genesis reload)" ;;
+    esac ;;
+  *)      echo "usage: ./genesis [up|daemon|reload|down|logs|status]"; exit 2 ;;
+esac

@@ -1,0 +1,332 @@
+# Spec: Genesis Markdown/30-MCP/genesis-tradingview-mcp.md
+#
+# EVERY SELECTOR AND EVERY PAGE EXPRESSION IN ONE FILE.
+#
+# The note's fragility budget asks for exactly this, and the reason is not
+# tidiness. This server automates somebody else's UI. It *will* break on their
+# updates — not maybe. When it does, the repair must be a one-line edit by
+# someone reading a diff of TradingView's DOM, not an expedition through Python
+# looking for string literals. A selector that lives next to the code that uses
+# it is a selector that gets duplicated, and then half-fixed.
+#
+# `self_test` (in server.py) evaluates every `probe` below and reports which
+# ones no longer resolve. Agent — Watchdog runs it on a schedule and after any
+# TradingView update, so the first news of a breakage is a health report rather
+# than an agent quietly returning nothing.
+#
+# > UNVERIFIED AGAINST A LIVE APP.
+# > The CDP transport is verified (spike, 2026-08-30: Runtime.evaluate returned
+# > the active symbol `NQ1!` and 34 chart canvases). These *selectors* are not:
+# > they were written without the app running. Treat a `self_test` failure here
+# > as "this was never right" before assuming "TradingView changed it".
+#
+# Each entry is a JavaScript expression evaluated in the chart page.
+#   probe  — truthy if the surface still exists. Used by self_test.
+#   read   — returns the value.
+#   write  — performs the action; takes {value} substituted as a JSON literal.
+#
+# Nothing here may reference the trade panel. cdp.py refuses such an expression
+# before it is sent (DENIED_PATTERNS), which makes this file's contents
+# unable to become an order path even if somebody edits it carelessly.
+
+# The chart widget's own API, when it is exposed. Always preferred over DOM
+# poking: it is a supported surface that survives a restyle, whereas a class
+# name is an implementation detail that changes when a designer changes.
+api:
+  probe: "typeof window.TradingViewApi !== 'undefined'"
+
+symbol:
+  probe: "!!document.querySelector('#header-toolbar-symbol-search')"
+  read: |
+    (() => {
+      if (typeof window.TradingViewApi !== 'undefined' &&
+          window.TradingViewApi.activeChart) {
+        try { return window.TradingViewApi.activeChart().symbol(); } catch (e) {}
+      }
+      const el = document.querySelector('#header-toolbar-symbol-search');
+      return el ? el.textContent.trim() : null;
+    })()
+  write: |
+    (() => {
+      if (typeof window.TradingViewApi !== 'undefined' &&
+          window.TradingViewApi.activeChart) {
+        window.TradingViewApi.activeChart().setSymbol({value});
+        return true;
+      }
+      return false;
+    })()
+
+timeframe:
+  probe: "!!document.querySelector('#header-toolbar-intervals')"
+  read: |
+    (() => {
+      if (typeof window.TradingViewApi !== 'undefined' &&
+          window.TradingViewApi.activeChart) {
+        try { return String(window.TradingViewApi.activeChart().resolution()); } catch (e) {}
+      }
+      const el = document.querySelector('#header-toolbar-intervals [aria-checked="true"]');
+      return el ? el.textContent.trim() : null;
+    })()
+  write: |
+    (() => {
+      if (typeof window.TradingViewApi !== 'undefined' &&
+          window.TradingViewApi.activeChart) {
+        window.TradingViewApi.activeChart().setResolution({value});
+        return true;
+      }
+      return false;
+    })()
+
+# The live-subscription read path — the tier-2 data in Market Data Sources.
+# Never the risk engine's price source: hard rule 3. A quote scraped from a GUI
+# answers "what's the high of day"; it does not size a position.
+quote:
+  probe: "!!document.querySelector('[data-name=\"legend-series-item\"]')"
+  read: |
+    (() => {
+      const item = document.querySelector('[data-name="legend-series-item"]');
+      if (!item) return null;
+      const values = [...item.querySelectorAll('[data-name="legend-value-item"]')]
+        .map(n => n.textContent.trim());
+      return {
+        symbol: (document.querySelector('#header-toolbar-symbol-search') || {}).textContent,
+        legend: values,
+        title: (item.querySelector('[data-name="legend-source-title"]') || {}).textContent,
+      };
+    })()
+
+watchlist:
+  probe: "!!document.querySelector('[data-name=\"watchlist-symbol\"]')"
+  read: |
+    [...document.querySelectorAll('[data-name="watchlist-symbol"]')]
+      .map(n => n.textContent.trim()).filter(Boolean)
+
+# --- Markup: the compile-don't-click path --------------------------------
+#
+# genesis-tradingview-mcp.md: "The Desktop renderer works by compiling the spec
+# into a Pine indicator and loading it through the editor — not by simulating
+# mouse drags on the chart. Text and keystrokes are a far more robust
+# automation surface than price→pixel math, and Genesis ends up owning exactly
+# one indicator, so your hand-drawn objects are never touched."
+#
+# So there is no selector here that draws anything, and none that can. The four
+# below open an editor, replace its text, compile it, and read back what landed
+# on the chart. A price never becomes a pixel coordinate anywhere in this path,
+# which is why it cannot draw a level at the wrong price.
+
+pine_editor:
+  probe: "!!document.querySelector('[data-name=\"scripteditor\"], .js-rootresizer__contents [data-name=\"pine-editor\"]')"
+  read: |
+    (() => {
+      const tab = document.querySelector('[data-name="scripteditor"], [data-name="pine-editor"]');
+      return tab ? true : false;
+    })()
+  write: |
+    (() => {
+      const button = document.querySelector('[data-name="scripteditor"], [id*="pine" i][role="button"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })()
+
+# The editor's text. Monaco exposes a model; CodeMirror exposes a view. Both are
+# tried before anything touches a DOM node, because setting text through the
+# editor's own API is the only way that leaves its undo stack and syntax state
+# coherent — a textarea write leaves an editor that looks right and compiles
+# the previous source.
+pine_source:
+  probe: "typeof window.monaco !== 'undefined' || !!document.querySelector('.cm-content')"
+  read: |
+    (() => {
+      if (typeof window.monaco !== 'undefined') {
+        const models = window.monaco.editor.getModels();
+        if (models.length) return models[0].getValue();
+      }
+      const cm = document.querySelector('.cm-content');
+      return cm ? cm.innerText : null;
+    })()
+  write: |
+    (() => {
+      const source = {value};
+      if (typeof window.monaco !== 'undefined') {
+        const models = window.monaco.editor.getModels();
+        if (models.length) { models[0].setValue(source); return true; }
+      }
+      const view = document.querySelector('.cm-content');
+      if (view && view.cmView && view.cmView.view) {
+        const cv = view.cmView.view;
+        cv.dispatch({changes: {from: 0, to: cv.state.doc.length, insert: source}});
+        return true;
+      }
+      return false;
+    })()
+
+# "Add to chart" / "Save". Compiles the source and applies the indicator.
+pine_apply:
+  probe: "!!document.querySelector('[data-name=\"add-script-to-chart\"], [data-name=\"save-script\"]')"
+  write: |
+    (() => {
+      const button = document.querySelector('[data-name="add-script-to-chart"]')
+        || document.querySelector('[data-name="save-script"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })()
+
+# The read-back. Hard rule 2: a write that cannot be perceived reports degraded,
+# never success. This looks for the indicator's own legend entry by name, which
+# is the chart telling us the script compiled and is drawing.
+pine_indicator:
+  probe: "!!document.querySelector('[data-name=\"legend-source-item\"]')"
+  read: |
+    [...document.querySelectorAll('[data-name="legend-source-title"]')]
+      .map(n => n.textContent.trim()).filter(Boolean)
+
+# --- One round trip for the whole readout --------------------------------
+#
+# `quote` used to be three evaluates: symbol, timeframe, quote. Each one is a
+# socket round trip, and the caller is a person waiting for an answer while a
+# model holds the turn. Reading all three in one expression is the same work
+# for the page and a third of the latency on the path that runs most often.
+#
+# The two individual reads above are kept: `set_symbol`'s read-back needs the
+# symbol alone, and a combined read would make a failed read-back ambiguous.
+snapshot:
+  probe: "!!document.querySelector('#header-toolbar-symbol-search')"
+  read: |
+    (() => {
+      const api = (typeof window.TradingViewApi !== 'undefined' &&
+                   window.TradingViewApi.activeChart)
+        ? window.TradingViewApi.activeChart() : null;
+      let symbol = null, timeframe = null;
+      if (api) {
+        try { symbol = api.symbol(); timeframe = String(api.resolution()); } catch (e) {}
+      }
+      if (!symbol) {
+        const el = document.querySelector('#header-toolbar-symbol-search');
+        symbol = el ? el.textContent.trim() : null;
+      }
+      if (!timeframe) {
+        const el = document.querySelector('#header-toolbar-intervals [aria-checked="true"]');
+        timeframe = el ? el.textContent.trim() : null;
+      }
+      const item = document.querySelector('[data-name="legend-series-item"]');
+      const quote = item ? {
+        legend: [...item.querySelectorAll('[data-name="legend-value-item"]')]
+          .map(n => n.textContent.trim()),
+        title: (item.querySelector('[data-name="legend-source-title"]') || {}).textContent,
+      } : null;
+      return {symbol, timeframe, quote};
+    })()
+
+# Bars out of the subscription already running in the app — the second reason
+# this server exists (genesis-tradingview-mcp.md §Why it exists: "read the feed
+# you already have" — real-time data is the cost bottleneck, not the compute).
+#
+# The widget's own `exportData` rather than anything scraped: it returns the
+# series the chart is already holding, so there is no price→pixel step and no
+# second tick bought. Still tier 2 — hard rule 3 keeps it out of the risk
+# engine, which uses the broker's feed.
+#
+# {value} is the bar count. `awaitPromise` is set on every evaluate, so
+# returning the promise is enough.
+ohlcv:
+  probe: |
+    (() => {
+      const api = (typeof window.TradingViewApi !== 'undefined' &&
+                   window.TradingViewApi.activeChart)
+        ? window.TradingViewApi.activeChart() : null;
+      return !!(api && typeof api.exportData === 'function');
+    })()
+  read: |
+    (() => {
+      const api = (typeof window.TradingViewApi !== 'undefined' &&
+                   window.TradingViewApi.activeChart)
+        ? window.TradingViewApi.activeChart() : null;
+      if (!api || typeof api.exportData !== 'function') return null;
+      return Promise.resolve(
+        api.exportData({includeTime: true, includeSeries: true, includeUserDrawings: false})
+      ).then(d => ({
+        symbol: api.symbol(),
+        timeframe: String(api.resolution()),
+        schema: (d && d.schema) || null,
+        bars: (d && d.data ? d.data : []).slice(-{value}),
+      }));
+    })()
+
+# --- The general-purpose script tools ------------------------------------
+#
+# Save the editor's contents under a name, so a script Genesis wrote is a
+# script you can find in your own library tomorrow. {value} is the name.
+pine_save:
+  probe: "!!document.querySelector('[data-name=\"save-script\"], [data-name=\"scripteditor-save\"]')"
+  write: |
+    (() => {
+      const name = {value};
+      const wait = (fn, ms) => new Promise(res => {
+        const t0 = Date.now();
+        const tick = () => {
+          const v = fn();
+          if (v || Date.now() - t0 > ms) return res(v || null);
+          setTimeout(tick, 100);
+        };
+        tick();
+      });
+      const save = document.querySelector('[data-name="save-script"], [data-name="scripteditor-save"]');
+      if (!save) return false;
+      save.click();
+      return wait(() => document.querySelector(
+        '[data-name="script-name-input"], input[data-name="save-script-name"]'), 3000
+      ).then(input => {
+        if (input) {
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value').set;
+          setter.call(input, name);
+          input.dispatchEvent(new Event('input', {bubbles: true}));
+          const submit = document.querySelector(
+            '[data-name="submit-button"], [data-name="save-script-dialog"] button[type="submit"]');
+          if (submit) submit.click();
+        }
+        return true;
+      });
+    })()
+
+# Apply a script you already saved, by name. Typing into the indicators search
+# and clicking the match — the same keystroke surface the editor path uses,
+# never a coordinate.
+pine_add_saved:
+  probe: "!!document.querySelector('#header-toolbar-indicators, [data-name=\"open-indicators-dialog\"]')"
+  write: |
+    (() => {
+      const name = {value};
+      const wait = (fn, ms) => new Promise(res => {
+        const t0 = Date.now();
+        const tick = () => {
+          const v = fn();
+          if (v || Date.now() - t0 > ms) return res(v || null);
+          setTimeout(tick, 100);
+        };
+        tick();
+      });
+      const open = document.querySelector('#header-toolbar-indicators, [data-name="open-indicators-dialog"]');
+      if (!open) return false;
+      open.click();
+      return wait(() => document.querySelector(
+        '[data-name="indicators-dialog"] input, input[data-role="search"]'), 3000
+      ).then(input => {
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, name);
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        return wait(() => [...document.querySelectorAll(
+          '[data-name="indicators-dialog"] [role="option"], [data-role="list-item"]')]
+          .find(n => n.textContent.trim().toLowerCase().includes(name.toLowerCase())), 3000);
+      }).then(hit => {
+        if (!hit) return false;
+        hit.click();
+        const close = document.querySelector('[data-name="indicators-dialog"] [data-name="close"]');
+        if (close) close.click();
+        return true;
+      });
+    })()

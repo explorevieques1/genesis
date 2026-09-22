@@ -81,21 +81,40 @@ class Scheduler:
     def unregister(self, agent_id: str) -> None:
         self._registered.pop(agent_id, None)
 
+    def seed_cron(self, agent_id: str, at: str, fired_on: dt.date) -> None:
+        """Restore "this cron already fired on this date" after a restart.
+
+        Run history lives in memory, so without this a daemon restarted at 11:00
+        fires the 07:00 brief a second time. The daemon calls it at registration
+        from the bus, which is the durable record of what was dispatched.
+        """
+        reg = self._registered.get(agent_id)
+        if reg is None:
+            return
+        for index, cadence in enumerate(reg.declaration.cadence):
+            if cadence.type == "cron" and cadence.at == at:
+                seen = reg.last_cron_date.get(index)
+                if seen is None or fired_on > seen:
+                    reg.last_cron_date[index] = fired_on
+
     def set_cadence(self, agent_id: str, interval_sec: int) -> bool:
         """Transiently override an agent's interval cadences.
 
-        Returns False for an unknown agent rather than raising: the caller is
-        the orchestrator, on the voice path, and it needs to say *"I don't have
-        an agent called that"* rather than take an exception mid-sentence.
+        Returns False rather than raising -- for an unknown agent *and* for a
+        nonsensical interval. The caller is the orchestrator, on the voice path,
+        and it needs to say *"I can't do that"* rather than take an exception
+        mid-sentence. A raise here reached the voice loop through
+        ``OrchestratorTools.set_cadence``, whose own contract promises a
+        boolean.
 
         Only ``market-open`` / ``market-closed`` cadences are affected. Cron
         times and event subscriptions are not intervals and are left alone.
         """
+        if interval_sec <= 0:
+            return False
         reg = self._registered.get(agent_id)
         if reg is None:
             return False
-        if interval_sec <= 0:
-            raise ValueError(f"interval_sec must be positive, got {interval_sec}")
         reg.interval_override_sec = interval_sec
         return True
 

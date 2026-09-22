@@ -142,3 +142,37 @@ function FrozenMark({
 }
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
+
+// -- structure: the always-on topology skeleton -------------------------------
+//
+// Fleet View §Layout draws the fleet's shape — sources ▶ MCP ▶ families ▶
+// orchestrator, memory below. The three live edge classes above ride on top of
+// that shape. Without it, an idle fleet (no daemon, or a quiet morning) is
+// thirty disconnected boxes and the operator cannot see the system at all.
+//
+// It carries no data, never animates, and is not selectable — it is wiring, not
+// traffic. It does NOT imply agent-to-agent messaging: every line runs to the
+// orchestrator, an MCP surface, or the memory fabric, which is exactly what the
+// architecture allows.
+
+export interface StructureEdgeData extends Record<string, unknown> { dimmed: boolean }
+export type StructureFlowEdge = Edge<StructureEdgeData, 'structure'>
+
+export const StructureEdge = memo(function StructureEdge(props: EdgeProps<StructureFlowEdge>) {
+  const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, id } = props
+  const [path] = getBezierPath({
+    sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, curvature: 0.2,
+  })
+  return (
+    <BaseEdge
+      id={id}
+      path={path}
+      style={{
+        stroke: 'var(--hairline-bright)',
+        strokeWidth: 1,
+        strokeOpacity: data?.dimmed ? 0.06 : 0.5,
+        fill: 'none',
+      }}
+    />
+  )
+})

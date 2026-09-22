@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Secrets — never commit. See 10-Architecture/Config And Secrets.md
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Runtime state — the ledger and memory are machine-local
+data/
+logs/
+*.db
+*.sqlite3
+*.duckdb
+
+# Obsidian workspace (keep the vault, drop the per-machine UI state)
+Genesis Markdown/.obsidian/workspace.json
+Genesis Markdown/.obsidian/workspace-mobile.json
+Genesis Markdown/.trash/
+
+# The trading corpus lives on an external SSD; `corpus` is a symlink to it.
+# Machine-local by definition — recreate with scripts/link_corpus.sh
+/corpus
+
+# OS
+.DS_Store
+
+# UI — Genesis Markdown/60-UI/UI Stack.md
+# node_modules/ and dist/ are already covered above.
+ui/.vite/
+*.tsbuildinfo

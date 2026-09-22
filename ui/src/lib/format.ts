@@ -134,3 +134,45 @@ export function price(value: string | null | undefined, places: number): string 
   if (places === 0) return whole
   return `${whole}.${frac.padEnd(places, '0').slice(0, places)}`
 }
+
+// ---------------------------------------------------------------------------
+// change → colour, shared by every red/green surface
+// ---------------------------------------------------------------------------
+
+/**
+ * The red→grey→green ramp, as five stops.
+ *
+ * One function so the `HM` treemap, the `PFM` board and the legends under both
+ * are provably the same mapping. Two surfaces showing the same −2% in two
+ * different reds is the kind of inconsistency an operator reads as meaning
+ * something.
+ */
+const RAMP = {
+  down: [0x7f, 0x14, 0x24],
+  downMid: [0xc0, 0x2b, 0x38],
+  flat: [0x41, 0x4b, 0x58],
+  upMid: [0x1f, 0x8c, 0x54],
+  up: [0x18, 0xc4, 0x74],
+}
+
+/**
+ * Percent change to a colour, saturating at `±clamp`.
+ *
+ * The clamp is the whole design of the scale, and it is per-surface because the
+ * distributions differ: a day of index members spans ±3%, but 3-month sector
+ * returns span ±12, and reusing the daily clamp there paints every bar the same
+ * green. Pass the range the surface actually shows.
+ *
+ * Grey rather than black at zero, so an unchanged instrument reads as
+ * *unchanged* rather than as missing.
+ */
+export function changeColour(pct: number, clamp = 3): string {
+  const t = Math.max(-1, Math.min(1, pct / clamp))
+  const [a, b, k] =
+    t < -0.5 ? [RAMP.down, RAMP.downMid, (t + 1) * 2]
+      : t < 0 ? [RAMP.downMid, RAMP.flat, (t + 0.5) * 2]
+        : t < 0.5 ? [RAMP.flat, RAMP.upMid, t * 2]
+          : [RAMP.upMid, RAMP.up, (t - 0.5) * 2]
+  const mix = a.map((c, i) => Math.round(c + (b[i] - c) * (k as number)))
+  return `rgb(${mix[0]},${mix[1]},${mix[2]})`
+}

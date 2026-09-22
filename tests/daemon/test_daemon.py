@@ -234,3 +234,80 @@ def test_shutdown_stops_every_agent(parts) -> None:
     daemon.shutdown(grace_sec=0)
     assert agent.status().state is AgentState.DOWN
     assert "Genesis offline" in out.getvalue()
+
+
+def _fresh_daemon(bus: TaskBus) -> Daemon:
+    calendar = MarketCalendar()
+    return Daemon(bus, calendar=calendar, scheduler=Scheduler(calendar),
+                  supervisor=Supervisor(), console=Console(io.StringIO()))
+
+
+def test_a_same_day_restart_does_not_refire_a_cron(tmp_path: Path) -> None:
+    """Cron history is in memory; the bus is what survives a restart."""
+    bus = TaskBus(tmp_path / "genesis.db", claim_ttl_sec=5.0)
+    cron = echo_declaration(cadence=[{"type": "cron", "at": "07:00"}])
+    seven = dt.datetime(2026, 8, 31, 11, 0, tzinfo=dt.UTC)   # 07:00 ET
+
+    first = _fresh_daemon(bus)
+    first.register(EchoAgent(cron))
+    assert len(first.tick(seven).dispatched) == 1
+
+    second = _fresh_daemon(bus)
+    second.register(EchoAgent(cron))
+    assert second.tick(OPEN).dispatched == [], "fired twice on one day"
+    assert len(second.tick(OPEN + dt.timedelta(days=1)).dispatched) == 1
+    bus.close()
+
+
+def test_unregister_stops_scheduling_and_supervision(parts) -> None:
+    daemon, agent, out = parts
+    daemon.boot(OPEN)
+    daemon.unregister("echo")
+    assert daemon.tick(OPEN).dispatched == []
+    assert daemon.supervisor.agent("echo") is None
+
+
+def test_a_user_task_does_not_wait_behind_a_running_research_task(tmp_path: Path) -> None:
+    """Separate pools, wake-on-submit, and a claim that outlives its TTL while held."""
+    import threading
+    import time
+
+    bus = TaskBus(tmp_path / "genesis.db", claim_ttl_sec=0.3)
+    daemon = _fresh_daemon(bus)
+    release, started = threading.Event(), threading.Event()
+
+    class Slow(EchoAgent):
+        def execute(self, task):  # noqa: ANN001, ANN201
+            started.set()
+            release.wait(10)
+            return super().execute(task)
+
+    daemon.register(Slow(echo_declaration(id="slow", cadence=[{"type": "on-demand"}])))
+    daemon.register(EchoAgent(echo_declaration(cadence=[{"type": "on-demand"}])))
+    # A 30 s tick: only the wakeup can make the user task start quickly.
+    loop = threading.Thread(target=daemon.run_forever, kwargs={"tick_sec": 30.0})
+    loop.start()
+    try:
+        scan = bus.submit(type="slow.run", agent="slow", lane=Lane.RESEARCH)
+        assert started.wait(5)
+
+        ask = bus.submit(type="echo.run", agent="echo", lane=Lane.USER)
+        deadline = time.monotonic() + 1.0
+        while bus.get(ask.id).state is not TaskState.DONE and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert bus.get(ask.id).state is TaskState.DONE, "user task waited behind research"
+
+        time.sleep(1.0)  # > 3x the claim TTL
+        bus.claim(lanes=[Lane.MAINTENANCE])  # what the other pool does: sweeps stale claims
+        assert bus.get(scan.id).state is TaskState.RUNNING, "held claim was expired mid-run"
+        release.set()
+        deadline = time.monotonic() + 2.0
+        while bus.get(scan.id).state is not TaskState.DONE and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert bus.get(scan.id).state is TaskState.DONE
+        assert bus.get(scan.id).attempts == 1
+    finally:
+        release.set()
+        daemon.shutdown()
+        loop.join(5)
+        bus.close()

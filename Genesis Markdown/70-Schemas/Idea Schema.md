@@ -1,8 +1,8 @@
 ---
 title: Idea Schema
 tags: [schema]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/news/ideas.py, ui/src/workspace/panels/trade-ideas.tsx, tests/news/test_ideas.py, src/genesis/research/setup.py, tests/research/test_setup.py]
 ---
 
 # Idea Schema

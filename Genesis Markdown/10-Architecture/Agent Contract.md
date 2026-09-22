@@ -1,8 +1,8 @@
 ---
 title: Agent Contract
 tags: [architecture, agent]
-status: building
-implemented_by: [src/genesis/agents/base.py, tests/agents/test_contract.py]
+status: built
+implemented_by: [src/genesis/agents/base.py, tests/agents/test_contract.py, src/genesis/agents/__init__.py, tests/conftest.py, tests/helpers.py, src/genesis/server/fleet.py, ui/src/components/AgentInspector.tsx, ui/src/workspace/panels/automation.tsx]
 ---
 
 # Agent Contract

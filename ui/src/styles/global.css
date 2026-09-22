@@ -120,6 +120,10 @@ input { font: inherit; color: inherit; }
   border: 1px solid transparent;
 }
 .btn-ghost:hover { color: var(--ink-dim); border-color: var(--hairline); }
+/* A ghost button that is a *mode* — a drawing tool that is out, a popover that
+ * is open — has to look held down, or the only way to know which tool you are
+ * holding is to click the chart and find out. */
+.btn-ghost[data-active='true'] { color: var(--core); border-color: var(--core); }
 
 .field {
   background: var(--bg-inset); border: 1px solid var(--hairline);
@@ -203,6 +207,6 @@ input { font: inherit; color: inherit; }
   --dv-group-view-background-color: var(--bg-panel);
   --dv-tabs-container-scrollbar-color: var(--hairline-bright);
   --dv-icon-hover-background-color: var(--bg-raised);
-  --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --dv-floating-box-shadow: var(--shadow-xl);
 }
 .dockview-theme-genesis .dv-tab { font-size: var(--fs-micro); letter-spacing: 0.12em; text-transform: uppercase; }

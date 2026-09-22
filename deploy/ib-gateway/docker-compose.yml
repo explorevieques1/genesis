@@ -1,0 +1,103 @@
+# Spec: Genesis Markdown/10-Architecture/Market Data Plane.md
+#
+# IB Gateway, headless, for the tier-1 feed. Open Questions §1 (2026-09-04).
+#
+# Gateway rather than TWS: it is the same API on a fraction of the footprint,
+# and it is the only one of the two designed to run without a person looking at
+# it. The image bundles IBC, which handles the login and the mandatory daily
+# restart -- IBKR forcibly disconnects every session once a day, and a system
+# that treats that as an outage instead of a scheduled event will page you at
+# the same time every morning forever.
+#
+#   docker compose up -d          start
+#   docker compose logs -f        watch the login
+#   docker compose down           stop
+#
+# Credentials live in ~/.genesis/.env, never here and never in git.
+# See deploy/ib-gateway/README.md for the one-time API settings.
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+    container_name: genesis-ib-gateway
+    restart: unless-stopped
+
+    environment:
+      TWS_USERID: ${IB_USERID}
+      TWS_PASSWORD: ${IB_PASSWORD}
+
+      # paper | live. Open Questions §1 pins this to paper until Phase 7, and
+      # Phase 7 is a deliberate, reviewable edit rather than a default that
+      # drifted. Safety Invariants §5: never ship a default that trades
+      # unattended.
+      TRADING_MODE: ${IB_TRADING_MODE:-paper}
+
+      # READ-ONLY API. This is the load-bearing line in the file.
+      #
+      # With this on, the socket cannot place an order at all -- not "will not",
+      # cannot. That is afferent ≠ efferent enforced by the broker rather than
+      # by our convention, and it is strictly stronger than the same rule
+      # written in Python, because it survives a bug in our code.
+      #
+      # Market Data Plane is a read-only plane. It has no reason to ever turn
+      # this off, and Phase 7's execution path is a separate connection with a
+      # separate decision attached to it. Flipping this is a reviewable event.
+      READ_ONLY_API: ${IB_READ_ONLY_API:-yes}
+
+      TIME_ZONE: ${IB_TIME_ZONE:-America/New_York}
+
+      # Auto-accept the API connection dialog. Without it the gateway sits
+      # waiting for a click that no one is there to give -- the exact failure
+      # mode that makes "headless" not headless.
+      BYPASS_WARNING: yes
+
+      # IBC's own daily restart, before IBKR's forced one, at a time we choose.
+      # AUTO restart, not COLD: it keeps the session token, so the daily restart
+      # needs no fresh 2FA (IBKR still asks for a full login once a week).
+      # IBC accepts only one of the two -- and TWS_COLD_RESTART wants `hh:mm`;
+      # the `0400` it used to carry made IBC exit before ever logging in.
+      AUTO_RESTART_TIME: ${IB_AUTO_RESTART_TIME:-11:59 PM}
+      # An unanswered 2FA push restarts the login instead of leaving the
+      # gateway parked on a dialog.
+      TWOFA_TIMEOUT_ACTION: restart
+      # One IBKR username holds one session. If the paper login is already open
+      # in TWS, Client Portal or the app, IBC otherwise stops on "Existing
+      # session detected" and waits forever for a click. `primary` takes the
+      # session over (logging the other one out); set IB_EXISTING_SESSION_ACTION
+      # to `manual` in ~/.genesis/.env to choose by hand over VNC instead.
+      EXISTING_SESSION_DETECTED_ACTION: ${IB_EXISTING_SESSION_ACTION:-primary}
+
+    ports:
+      # 4002 paper, 4001 live. Bound to loopback ONLY.
+      #
+      # 127.0.0.1 in the host part is not decoration: a bare "4002:4002"
+      # publishes the port on every interface, and an unauthenticated broker
+      # API socket reachable from the LAN is the worst kind of open port --
+      # even read-only, it exposes account state. There is no case where this
+      # should listen on 0.0.0.0.
+      #
+      # The container side is 4004, not 4002. The gateway only trusts
+      # connections from the container's own 127.0.0.1, so the image runs socat
+      # to relay 0.0.0.0:4004 -> 127.0.0.1:4002 (live: 4003 -> 4001). Mapping to
+      # 4002 directly reaches a socket that refuses us.
+      # IB_API_RELAY_PORT is 4004 for paper, 4003 for live; the Genesis
+      # settings page writes it with the trading mode.
+      - "127.0.0.1:${IB_GATEWAY_PORT:-4002}:${IB_API_RELAY_PORT:-4004}"
+      # VNC, for the one-time API configuration and for looking at it when
+      # something is wrong. Also loopback only. Leave it commented until
+      # needed; see the README for the SSH-tunnel alternative.
+      # - "127.0.0.1:5900:5900"
+
+
+    healthcheck:
+      # The port being open is a weak signal, but it is the honest one
+      # available without a client library in the container. A real readiness
+      # check -- "the API answers reqCurrentTime" -- belongs in the adapter,
+      # where a client exists. Proprioception before ambition: this check knows
+      # what it can and cannot verify, and does not claim the stronger thing.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/${IB_API_RELAY_PORT:-4004}' 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # Login, 2FA and the initial data load take minutes on a cold start.
+      start_period: 300s

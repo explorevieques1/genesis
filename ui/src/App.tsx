@@ -13,31 +13,30 @@
 // additionally wrapped in its own boundary, so the blast radius of a bad series
 // is one rectangle.
 //
-// **What changed from the previous shell.** It was a fixed three-region layout
-// with four tabs over one fleet graph. `UI Stack §3` specifies Dockview —
-// *"dockable, splittable, floating, serialisable"* — with named presets that
-// Voice UX can target, and the build-status table recorded the gap: *"no
-// serialisable presets, so Voice UX has nothing to target yet."* That is now
-// closed. The eight pages beyond the fleet view are new surface area and are
-// noted as such in `60-UI/Workspaces.md`.
+// **The nine main categories are nine workspaces.** Each is a Dockview dock
+// with its own persisted arrangement, seeded once from `SEEDS` and the
+// operator's from then on. Any module opens into any of them, by short code,
+// as many times as they want — see `60-UI/Workspaces.md`.
+//
+// `home` is the exception and has no dock: it is the command line, and it
+// stays empty (Operating Model §3).
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CapabilityProvider } from '@/api/capabilities'
 import { PanelBoundary } from '@/components/PanelBoundary'
-import { SafetyFloor } from '@/components/SafetyFloor'
 import { SystemHealthBar } from '@/components/SystemHealth'
 import type { VoiceReply } from '@/components/TapToSpeak'
 import { selectBusy, useGenesis } from '@/store/useGenesis'
 import { makeTransport } from '@/transport/live'
 import { speak, stopSpeaking } from '@/lib/speak'
 import { CommandBar } from '@/shell/CommandBar'
+import { PALETTE_EVENT } from '@/shell/catalogue'
+import { revealPanel } from '@/workspace/dock'
 import { TopBar } from '@/shell/TopBar'
 import { DEFAULT_PAGE, PAGES, type PageId } from '@/shell/pages'
 import { Workspace } from '@/workspace/Workspace'
 import { WorkspaceProvider, useWorkspace } from '@/workspace/context'
-import {
-  clearLayout, presetsFor, recallPreset, rememberPreset, type Preset,
-} from '@/workspace/presets'
+import { clearSpace } from '@/workspace/dock'
 
 /** Where the local server lives. Loopback only — see `genesis serve`. */
 const HTTP = (import.meta.env.VITE_GENESIS_HTTP as string | undefined)
@@ -106,7 +105,9 @@ export default function App() {
 }
 
 function Shell() {
-  const now = useClock()
+  // Called for its side effect, not its value: the clock is what runs `prune()`
+  // on the event store. `SafetyFloor` used to consume the `now` it returns.
+  useClock()
   const attach = useGenesis((s) => s.attach)
   const detach = useGenesis((s) => s.detach)
   const approvalMode = useGenesis((s) => s.safety.approvalMode)
@@ -118,8 +119,9 @@ function Shell() {
   // linkable, a reload lands where you were, and the browser's back button does
   // the obvious thing. A full router would be a dependency for one string.
   const [page, setPage] = useState<PageId>(() => pageFromHash() ?? DEFAULT_PAGE)
-  const [presetId, setPresetId] = useState<string | null>(null)
   const [commandOpen, setCommandOpen] = useState(false)
+  // A line another surface asked ⌘K to open with — `MAP` handing over a command.
+  const [paletteQuery, setPaletteQuery] = useState('')
   const [reply, setReply] = useState<VoiceReply | null>(null)
   // Why the reply was not spoken, when it was not. Held beside the text rather
   // than swallowed: silence with no explanation is indistinguishable from
@@ -136,11 +138,54 @@ function Shell() {
   const onReply = useCallback((next: VoiceReply) => {
     setReply(next)
     setUnspoken(null)
+
+    // Genesis putting a panel on screen, through the same dock API a person
+    // uses (Operating Model §3). This is the one sanctioned way something
+    // appears unasked-for: the human asked, and this is the answer arriving in
+    // the form the answer has. A command that returns no `data` opens nothing,
+    // which is why the canvas is the only case here and adding a second one
+    // takes a deliberate edit — this is now the second and third.
+    //
+    // `note that ...`, `open note X`, `search notes ...` — the command wrote or
+    // found a note, and the answer is that note on screen. Same door as the
+    // panel uses: `select` then `revealPanel`, no private channel.
+    const notePath = next.data?.note_path
+    if (notePath) {
+      setPage('journal')
+      select({ notePath })
+      revealPanel('notebook', { title: 'Notebook' })
+    }
+
+    // A screen from ⌘K or voice: the answer is the SCR table.
+    if (next.data?.screen) {
+      setPage('research')
+      revealPanel('screener', { title: 'Screener' })
+    }
+
+    const canvasId = next.data?.canvas_id
+    if (canvasId) {
+      setPage('research')
+      // A second research command should update the canvas you are looking at,
+      // not stack another one beside it — and "the canvas you are looking at"
+      // includes one you opened yourself with `CA`, which a private id would
+      // have missed. `revealPanel` matches on component, not on who opened it.
+      revealPanel('research-canvas', { title: 'Canvas' })
+    }
+
     if (next.spoken?.trim()) {
       void speak(next.spoken).then((attempt) => {
         if (!attempt.ok && attempt.reason) setUnspoken(attempt.reason)
       })
     }
+  }, [select])
+
+  useEffect(() => {
+    const onPalette = (e: Event) => {
+      setPaletteQuery((e as CustomEvent<string>).detail)
+      setCommandOpen(true)
+    }
+    window.addEventListener(PALETTE_EVENT, onPalette)
+    return () => window.removeEventListener(PALETTE_EVENT, onPalette)
   }, [])
 
   useEffect(() => {
@@ -156,17 +201,8 @@ function Shell() {
     document.documentElement.dataset.tier = tier
   }, [approvalMode, halted, tier])
 
-  // The preset in force: the one last chosen on this page, or the page default.
-  const preset = useMemo<Preset | null>(() => {
-    const available = presetsFor(page)
-    if (!available.length) return null
-    const wanted = presetId ?? recallPreset(page)
-    return available.find((p) => p.id === wanted) ?? available[0]
-  }, [page, presetId])
-
   const goToPage = useCallback((next: PageId) => {
     setPage(next)
-    setPresetId(null)
     if (window.location.hash.slice(1) !== next) window.location.hash = next
   }, [])
 
@@ -174,36 +210,24 @@ function Shell() {
   useEffect(() => {
     const onHash = () => {
       const next = pageFromHash()
-      if (next) { setPage(next); setPresetId(null) }
+      if (next) setPage(next)
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  const choosePreset = useCallback((next: Preset) => {
-    setPresetId(next.id)
-    rememberPreset(next.page, next.id)
-  }, [])
-
-  const resetWorkspace = useCallback(() => {
-    if (!preset) return
-    clearLayout(preset.id)
-    // Re-select the same preset to force a rebuild from its declared layout.
-    setPresetId(null)
-    requestAnimationFrame(() => setPresetId(preset.id))
-  }, [preset])
-
-  // ⌘K, and ⌘1…⌘8 for the pages. Registered on the window rather than a
+  // ⌘K, and ⌘1…⌘9 for the pages. Registered on the window rather than a
   // container so they work regardless of what has focus.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const meta = event.metaKey || event.ctrlKey
       if (meta && event.key.toLowerCase() === 'k') {
         event.preventDefault()
+        setPaletteQuery('')
         setCommandOpen((open) => !open)
         return
       }
-      if (meta && /^[1-8]$/.test(event.key)) {
+      if (meta && /^[0-9]$/.test(event.key)) {
         const target = PAGES.find((p) => p.key === event.key)
         if (target) { event.preventDefault(); goToPage(target.id) }
       }
@@ -217,31 +241,11 @@ function Shell() {
       <TopBar
         page={page}
         onPage={goToPage}
-        preset={preset}
-        onPreset={choosePreset}
-        onCommand={() => setCommandOpen(true)}
-        onResetWorkspace={resetWorkspace}
+        onCommand={() => { setPaletteQuery(''); setCommandOpen(true) }}
+        onClearSpace={clearSpace}
         http={HTTP}
         onReply={onReply}
       />
-
-      {/* ---- the safety floor. plain DOM, independent of everything below ----
-
-           Wrapped in its own boundary, and the reason is not hypothetical: a
-           missing snapshot field once reached `money()`, threw, and React
-           unmounted the entire tree — heat, headroom, approval mode and the
-           kill switch, gone, because one string was undefined. `UI Stack §6`
-           makes this the first thing painted and the last thing to fail, so
-           the floor may degrade to a stub but may never take the shell with
-           it. The formatters are now total as well; this is the second line
-           of defence, not the only one. */}
-      <div className="hairline-b flex" style={{ flexShrink: 0 }}>
-        <div className="flex-1 min-w-0 scroll-x">
-          <PanelBoundary name="safety-floor">
-            <SafetyFloor now={now} />
-          </PanelBoundary>
-        </div>
-      </div>
 
       {/* ---- the conversation. Only present when there is something to show:
               an idle Genesis says nothing, including visually. ---- */}
@@ -277,24 +281,60 @@ function Shell() {
         </div>
       )}
 
-      <div className="hairline-b" style={{ flexShrink: 0, height: 20 }}>
-        <SystemHealthBar />
+      {/* ---- the status widget ----
+
+           Daemon connection, the six organ health states, the render tier and
+           the kill switch, in one row. The approval-mode strip that used to sit
+           above it is gone from the chrome: it showed an em dash in four of five
+           cells because there is no broker and no position in this phase, and
+           Operating Model §3 says nothing is on screen that was not asked for.
+           The full readout — approval mode, heat, daily-loss headroom, open
+           positions, feed — lives in Settings → Approval, rendered by the same
+           `SafetyFloor` component so the two cannot drift.
+
+           **This must come back to the chrome before Phase 7.** Heat and
+           headroom become live numbers the moment there is a position, and a
+           number that matters behind a click is a number nobody reads.
+
+           Its own boundary, and the reason is not hypothetical: a missing
+           snapshot field once reached `money()`, threw, and React unmounted the
+           entire tree because one string was undefined. */}
+      <div className="hairline-b" style={{ flexShrink: 0, height: 26 }}>
+        <PanelBoundary name="status">
+          <SystemHealthBar />
+        </PanelBoundary>
       </div>
 
-      {/* ---- the workspace: everything that may fail on its own ---- */}
+      {/* ---- the workspace: everything that may fail on its own ----
+
+           On `home` there is no dock, by design. The command line *is* the
+           page: Operating Model §3's "the blank canvas must be
+           self-describing" is the whole of what stands between an empty screen
+           and a dead end. Every other category is a workspace with its own
+           persisted arrangement, into which any module can be spawned. */}
       <div style={{ flex: 1, minHeight: 0 }}>
-        {preset ? (
-          <Workspace preset={preset} />
+        {page === 'home' ? (
+          <PanelBoundary name="home">
+            <CommandBar
+              open
+              page={page}
+              variant="inline"
+              onClose={() => {}}
+              onPage={goToPage}
+              onSymbol={(symbolId, timeframe) => select({ symbolId, timeframe })}
+              onCommandResult={onReply}
+            />
+          </PanelBoundary>
         ) : (
-          <div className="flex items-center justify-center h-full label" style={{ color: 'var(--ink-ghost)' }}>
-            no workspace defined for this page
-          </div>
+          <Workspace page={page} />
         )}
       </div>
 
       <CommandBar
         open={commandOpen}
-        onClose={() => setCommandOpen(false)}
+        page={page}
+        initialQuery={paletteQuery}
+        onClose={() => { setCommandOpen(false); setPaletteQuery('') }}
         onPage={goToPage}
         onSymbol={(symbolId, timeframe) => select({ symbolId, timeframe })}
         onCommandResult={onReply}

@@ -1,8 +1,8 @@
 ---
 title: genesis-charting-mcp
 tags: [mcp, charting]
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/charting/server.py, src/genesis/charting/pine.py, tests/charting/test_charting_server.py]
 ---
 
 # genesis-charting-mcp

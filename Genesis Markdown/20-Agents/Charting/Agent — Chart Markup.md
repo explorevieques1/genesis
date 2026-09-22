@@ -4,8 +4,8 @@ tags: [agent, charting]
 family: charting
 cadence: on-demand, event
 tier: large
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/charting/chart_markup.py, src/genesis/charting/compose.py, tests/charting/test_agents.py]
 ---
 
 # ✏️ Agent — Chart Markup

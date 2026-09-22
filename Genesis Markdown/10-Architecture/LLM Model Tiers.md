@@ -1,7 +1,7 @@
 ---
 title: LLM Model Tiers
 tags: [architecture]
-status: building
+status: built
 implemented_by: [src/genesis/llm/backend.py, src/genesis/llm/anthropic_backend.py, src/genesis/llm/openai_compat.py, src/genesis/llm/usage.py, src/genesis/llm/tiers.py, src/genesis/cli.py, src/genesis/llm/parse.py, tests/llm/test_anthropic_tool_loop.py, tests/llm/test_bad_request.py, tests/llm/test_ollama_status.py, tests/llm/test_providers.py]
 ---
 

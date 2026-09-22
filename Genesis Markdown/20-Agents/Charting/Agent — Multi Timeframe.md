@@ -4,8 +4,8 @@ tags: [agent, charting]
 family: charting
 cadence: on-demand
 tier: vision
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/charting/multi_timeframe.py, tests/charting/test_agents.py]
 ---
 
 # 🔭 Agent — Multi Timeframe

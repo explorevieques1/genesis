@@ -157,13 +157,24 @@ export type UiTierChanged = Envelope<'ui.tier_changed', { from: RenderTier; to: 
 /** Genesis Core §States / Voice UX state machine. */
 export type VoiceStateChanged = Envelope<'voice.state_changed', { to: CoreState }>
 
+/**
+ * The daemon crossing a session boundary (`Daemon.tick`).
+ *
+ * Already emitted by the daemon and, until now, absent from this union — which
+ * made it an event the UI could receive and had no name for. `PFM` refreshes on
+ * `market.close`, and that is the reason to push rather than poll: the daemon
+ * owns the real exchange calendar, holidays and half-days included, so the
+ * closing bell is a fact that arrives rather than a clock the browser guesses.
+ */
+export type MarketSession = Envelope<'market.open' | 'market.close', { from: string; to: string }>
+
 export type GenesisEvent =
   | TaskDispatched | TaskStarted | TaskCompleted | TaskFailed
   | AgentStateChanged | MemoryRead | MemoryWritten
   | OrderProposed | OrderApproved | OrderRejected | OrderPlaced | OrderFilled
   | RiskBreached | HaltEngaged
   | AgentDown | AgentRecovered | DataStale | SystemDegraded | McpSessionLost
-  | UiTierChanged | VoiceStateChanged
+  | UiTierChanged | VoiceStateChanged | MarketSession
 
 export type GenesisEventName = GenesisEvent['event']
 

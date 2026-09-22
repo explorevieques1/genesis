@@ -1,7 +1,7 @@
 ---
 title: Config And Secrets
 tags: [architecture]
-status: building
+status: built
 implemented_by: [src/genesis/config.py, src/genesis/default_config.yaml, tests/test_config.py]
 ---
 

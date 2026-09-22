@@ -4,11 +4,23 @@ tags: [agent, research]
 family: research
 cadence: market-open, event
 tier: large
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/agents/research/news_catalyst.py, src/genesis/agents/research/fleet.py, src/genesis/server/news_routes.py, src/genesis/news/ideas.py, tests/news/test_ideas.py, src/genesis/news/symbols.py]
 ---
 
 # 📰 Agent — News And Catalyst
+
+> [!info] Built so far (2026-09-13)
+> The **reading half**: per-article AI summary (summary, insights, trade ideas
+> with an invalidation, direction / magnitude / horizon / kind) and the
+> multi-story **brief** (triage → read → write), both over `news.db`, which
+> [[Agent — News Collector]] fills. Task types `news.summarise {article_id}` and
+> `news.brief {hours, symbols, focus, max_articles, refresh}`; the planner is
+> told about `news.brief`. Surfaced in [[News]] and as the `agent.news-brief`
+> workflow node. Registered only when a large tier builds.
+>
+> Not yet built: catalyst records to `shared` memory, the forward calendar,
+> `news.spike`, and filings / calendar tools — the outputs below.
 
 ## Purpose
 

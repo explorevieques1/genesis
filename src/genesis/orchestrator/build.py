@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from genesis.bus.bus import TaskBus
 from genesis.config import Config
 from genesis.errors import DegradedError
+from genesis.llm.tiers import build_tier
 from genesis.memory.working import WorkingMemory
+from genesis.orchestrator.answer import Ladder
 from genesis.orchestrator.answers import TrivialAnswerer
 from genesis.orchestrator.intent import IntentClassifier
 from genesis.orchestrator.loop import VoiceLoop
@@ -36,7 +39,7 @@ from genesis.voice.speaker import Speaker, default_backends
 from genesis.voice.stt import ScribeSTT
 from genesis.voice.wake import LocalWhisperWake, WakeGate
 
-__all__ = ["VoiceStack", "build_voice_loop"]
+__all__ = ["LadderParts", "VoiceStack", "build_ladder", "build_voice_loop"]
 
 
 @dataclass
@@ -55,9 +58,150 @@ class VoiceStack:
     recorder: VoiceRecorder | None = None
     verbosity: VerbosityControl | None = None
     policy: SpeechPolicy | None = None
+    #: The MCP tool surface the orchestrator answers from. ``None`` means no
+    #: gateway was passed, which is a quieter Genesis rather than a broken one.
+    bridge: Any = None
 
     def close(self) -> None:
         self.loop.stop()
+
+
+
+@dataclass
+class LadderParts:
+    """The answer ladder, plus the pieces a caller may still need a handle on.
+
+    ``tools`` and ``registry`` are returned rather than buried because the CLI
+    prints them and the daemon registers into them. ``bridge`` is returned so a
+    caller can report how many tools the orchestrator can actually reach --
+    "wired but granted nothing" is a real state and a silent one.
+    """
+
+    ladder: Ladder
+    verbosity: VerbosityControl
+    registry: CapabilityRegistry
+    tools: OrchestratorTools | None = None
+    bridge: Any = None
+
+
+def build_ladder(
+    config: Config,
+    *,
+    bus: TaskBus | None = None,
+    gateway: Any = None,
+    registry: CapabilityRegistry | None = None,
+    memory: WorkingMemory | None = None,
+    supervisor: Any = None,
+    scheduler: Any = None,
+    kill_switch: Any = None,
+    notes: list[str] | None = None,
+) -> LadderParts:
+    """Wire the answer ladder from config. No audio, no HTTP, no microphone.
+
+    One place decides what the rungs are, because there are now two callers and
+    they must not drift: ``build_voice_loop`` for the spoken path, and the
+    daemon's HTTP command route for the typed one. A rung wired in one and not
+    the other is exactly the failure Operating Model §2 names -- a capability
+    that exists only if you speak.
+
+    ``notes`` collects degradations rather than raising them. Every rung here
+    is optional and every absence is reported: a missing key makes Genesis
+    quieter, never broken.
+    """
+    notes = notes if notes is not None else []
+    memory = memory if memory is not None else WorkingMemory()
+    verbosity = VerbosityControl(config.identity.verbosity)
+    # The large tier -- the fail-open answer path. Absent means a quieter
+    # Genesis, not a broken one, so a missing key is a note rather than a raise.
+    #
+    # With a gateway it answers from tools; without one it answers from what
+    # the model already knows and says so. The bridge is built here rather than
+    # inside the Reasoner because the allow-list is a property of *who is
+    # asking*, and "orchestrator" is decided by the wiring, not by the caller.
+    bridge = None
+    if gateway is not None:
+        from genesis.orchestrator.toolbridge import ToolBridge
+
+        bridge = ToolBridge(gateway, agent="orchestrator")
+        reachable = len(gateway.tools_for("orchestrator"))
+        if reachable:
+            notes.append(f"orchestrator can reach {reachable} tools")
+        else:
+            notes.append("gateway wired but the orchestrator is granted no tools")
+    else:
+        notes.append("no MCP gateway - the orchestrator answers without tools")
+
+    # Every provider, through the one builder the fleets use. This used to
+    # construct `AnthropicBackend` inline and note "backend 'gemini' is not
+    # wired yet" for anything else -- so a free tier that answered on the
+    # command line left the terminal and [[Ask Genesis]] saying *"I can't reach
+    # my reasoning model right now"*. Same door, same wiring: `tiers.build_tier`.
+    reasoner = None
+    large = build_tier(config, "large")
+    if large.note:
+        notes.append(large.note)
+    if large.backend is not None:
+        from genesis.orchestrator.reasoner import Reasoner
+
+        reasoner = Reasoner(large.backend, verbosity=verbosity, bridge=bridge)
+
+    # The planning path. Both halves or neither: a planner with no bus has
+    # nowhere to dispatch, and a runner with no planner has nothing to run.
+    #
+    # The registry is empty until Phase 4 registers a read-only agent, and an
+    # empty registry means the planner declines *without calling a model*. So
+    # wiring this in now costs one SQLite handle and zero tokens per turn --
+    # and the day the screener is registered, planning starts working with no
+    # further change here.
+    registry = registry if registry is not None else CapabilityRegistry()
+    tools: OrchestratorTools | None = None
+    planner = None
+    runner = None
+    if bus is not None:
+        tools = OrchestratorTools(
+            bus,
+            supervisor=supervisor,
+            scheduler=scheduler,
+            kill_switch=kill_switch,
+            approval_mode=config.approval.mode,
+        )
+        runner = PlanRunner(tools, memory=memory, research=_research_store(config, notes))
+        small = build_tier(config, "small")
+        if small.note:
+            notes.append(small.note)
+        if small.backend is not None:
+            planner = Planner(
+                small.backend, registry, verbosity=config.identity.verbosity,
+            )
+        if planner is not None and not registry:
+            notes.append("no agents registered - the planner will decline until Phase 4")
+    else:
+        notes.append("no task bus - planning is off, answers come from the large tier")
+    return LadderParts(
+        ladder=Ladder(
+            verbosity=verbosity,
+            answerer=TrivialAnswerer(),
+            planner=planner,
+            runner=runner,
+            reasoner=reasoner,
+        ),
+        verbosity=verbosity,
+        registry=registry,
+        tools=tools,
+        bridge=bridge,
+    )
+
+def _research_store(config: Config, notes: list[str]):
+    """Where plan findings are remembered. Absent is a note, not a failure."""
+    try:
+        from genesis.research.store import ResearchStore
+
+        return ResearchStore(
+            path=config.memory.db_path.parent / "research.db", vault=config.memory.vault_path
+        )
+    except Exception as exc:  # noqa: BLE001 - planning works without memory of findings
+        notes.append(f"research store unavailable - findings are not remembered: {exc}")
+        return None
 
 
 def build_voice_loop(
@@ -71,6 +215,7 @@ def build_voice_loop(
     supervisor=None,
     scheduler=None,
     kill_switch=None,
+    gateway=None,
 ) -> VoiceStack:
     """Build the loop described by ``config``.
 
@@ -121,65 +266,26 @@ def build_voice_loop(
     else:
         notes.append("no task bus - turns are not recorded and roll off is dropped")
 
-    verbosity = VerbosityControl(config.identity.verbosity)
     policy = SpeechPolicy(Presence())
     earcons = EarconPlayer(player, enabled=not silent)
     earcons.warm()  # rendered before the mic opens, never on the latency path
 
-    # The large tier -- the fail-open answer path. Absent means a quieter
-    # Genesis, not a broken one, so a missing key is a note rather than a raise.
-    reasoner = None
-    if config.llm.large.backend == "anthropic":
-        try:
-            from genesis.llm.anthropic_backend import AnthropicBackend
-            from genesis.orchestrator.reasoner import Reasoner
-
-            reasoner = Reasoner(
-                AnthropicBackend(config.llm.large.model), verbosity=verbosity
-            )
-        except DegradedError as exc:
-            notes.append(f"large tier unavailable: {exc.reason}")
-    elif config.llm.large.backend != "none":
-        notes.append(f"large tier backend {config.llm.large.backend!r} is not wired yet")
-
-    # The planning path. Both halves or neither: a planner with no bus has
-    # nowhere to dispatch, and a runner with no planner has nothing to run.
-    #
-    # The registry is empty until Phase 4 registers a read-only agent, and an
-    # empty registry means the planner declines *without calling a model*. So
-    # wiring this in now costs one SQLite handle and zero tokens per turn --
-    # and the day the screener is registered, planning starts working with no
-    # further change here.
-    registry = registry if registry is not None else CapabilityRegistry()
-    tools: OrchestratorTools | None = None
-    planner = None
-    runner = None
-    if bus is not None:
-        tools = OrchestratorTools(
-            bus,
-            supervisor=supervisor,
-            scheduler=scheduler,
-            kill_switch=kill_switch,
-            approval_mode=config.approval.mode,
-        )
-        runner = PlanRunner(tools, memory=memory)
-        if config.llm.small.backend == "anthropic":
-            try:
-                from genesis.llm.anthropic_backend import AnthropicBackend
-
-                planner = Planner(
-                    AnthropicBackend(config.llm.small.model),
-                    registry,
-                    verbosity=config.identity.verbosity,
-                )
-            except DegradedError as exc:
-                notes.append(f"planner unavailable: {exc.reason}")
-        elif config.llm.small.backend != "none":
-            notes.append(f"small tier backend {config.llm.small.backend!r} is not wired yet")
-        if planner is not None and not registry:
-            notes.append("no agents registered - the planner will decline until Phase 4")
-    else:
-        notes.append("no task bus - planning is off, answers come from the large tier")
+    # The answer ladder -- shared verbatim with `POST /v1/command`, so a typed
+    # sentence reaches the same rungs a spoken one does (Operating Model §2).
+    parts = build_ladder(
+        config,
+        bus=bus,
+        gateway=gateway,
+        registry=registry,
+        memory=memory,
+        supervisor=supervisor,
+        scheduler=scheduler,
+        kill_switch=kill_switch,
+        notes=notes,
+    )
+    verbosity, tools, registry, bridge = (
+        parts.verbosity, parts.tools, parts.registry, parts.bridge,
+    )
 
     classifier = IntentClassifier(wake_word=config.identity.wake_word, echo=echo)
     loop = VoiceLoop(
@@ -188,10 +294,10 @@ def build_voice_loop(
         speaker=speaker,
         classifier=classifier,
         memory=memory,
-        answerer=TrivialAnswerer(),
-        planner=planner,
-        runner=runner,
-        reasoner=reasoner,
+        answerer=parts.ladder.answerer,
+        planner=parts.ladder.planner,
+        runner=parts.ladder.runner,
+        reasoner=parts.ladder.reasoner,
         earcons=earcons,
         verbosity=verbosity,
         policy=policy,
@@ -209,6 +315,7 @@ def build_voice_loop(
         recorder=recorder,
         verbosity=verbosity,
         policy=policy,
+        bridge=bridge,
     )
 
 

@@ -10,13 +10,22 @@ to observe was unobservable in practice.
 
 Two rules shape what gets written.
 
-**Ambient speech is counted, never quoted.** Working Memory's snapshot excludes
-the ambient buffer because *"conversation you did not address to the system does
-not end up on disk"*, and this is the same boundary one layer down. A turn the
-classifier ruled ambient is logged as a count of words and nothing else. The
-[[Voice Stack]] privacy line -- audio leaves the machine only after the local
-wake gate fires -- would be worth very little if the transcript of everything
-said near the microphone were then written to a database.
+**Ambient speech is not written down at all.** Not the text, not a word count,
+not a timestamp. [[Working Memory]] states it as a testable invariant --
+*"ambient conversation for 10 minutes produces zero actions and zero disk
+writes"* -- and the second half of that is as load-bearing as the first.
+
+It is tempting to keep a count "just for observability", and this module did
+until a review caught it against the criterion. A per-utterance word count with
+a timestamp is not content, but it is a conversation's cadence: how many people
+are in the room, when they arrived, when they went quiet. That is a surprising
+amount to learn from a field nobody thought of as data, and it would sit next
+to the [[Voice Stack]] privacy line -- audio leaves the machine only after the
+local wake gate fires -- quietly undermining it.
+
+So the count lives in memory only, on :attr:`VoiceRecorder.ambient_heard`,
+where the [[Dashboard]] and a live console can read it and a restart forgets
+it.
 
 **Rolloff is summarisation, not deletion.** [[Working Memory]] is explicit that
 what rolls out of the live buffer is preserved in the [[Episodic Log]], and that
@@ -61,10 +70,20 @@ class VoiceRecorder:
     def __init__(self, log: EpisodicLog, *, actor: str = "orchestrator") -> None:
         self.log = log
         self.actor = actor
+        #: Ambient utterances heard this session. In memory, never persisted --
+        #: see the module docstring. A restart forgets it, which is correct.
+        self.ambient_heard = 0
 
     # -- the voice loop's on_turn sink -------------------------------------
 
     def on_turn(self, turn: Any) -> None:
+        # Ambient speech never reaches the log. Returning before the append is
+        # the whole enforcement -- there is no ambient branch further down that
+        # a later edit could re-enable by accident.
+        if getattr(turn, "intent", "") == "ambient":
+            self.ambient_heard += 1
+            return
+
         kind, summary, payload = self._entry_for(turn)
         self._append(
             kind=kind,
@@ -82,16 +101,6 @@ class VoiceRecorder:
             "stt_ms": round(getattr(turn, "stt_ms", 0.0), 1),
             "total_ms": round(getattr(turn, "total_ms", 0.0), 1),
         }
-
-        if intent == "ambient":
-            # Counted, never quoted. The one branch in this module that must
-            # not be "improved" by including the text for debugging.
-            words = len(str(getattr(turn, "heard", "")).split())
-            return (
-                "voice.ambient",
-                "ambient speech, ignored",
-                {"words": words, **timings},
-            )
 
         if intent == "echo":
             return "voice.echo", "heard ourselves, discarded", timings

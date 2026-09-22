@@ -6,7 +6,29 @@
   "hideUnresolved": false,
   "showOrphans": true,
   "collapse-color-groups": true,
-  "colorGroups": [],
+  "colorGroups": [
+    {
+      "query": "path:90-Graph/Modules",
+      "color": {
+        "a": 1,
+        "rgb": 4886754
+      }
+    },
+    {
+      "query": "path:90-Graph/Tools",
+      "color": {
+        "a": 1,
+        "rgb": 16098851
+      }
+    },
+    {
+      "query": "path:20-Agents",
+      "color": {
+        "a": 1,
+        "rgb": 8311585
+      }
+    }
+  ],
   "collapse-display": true,
   "showArrow": false,
   "textFadeMultiplier": 0,
@@ -17,6 +39,6 @@
   "repelStrength": 19.7606520169194,
   "linkStrength": 1,
   "linkDistance": 250,
-  "scale": 0.2962962962962961,
+  "scale": 0.08779149519890253,
   "close": true
 }

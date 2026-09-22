@@ -1,4 +1,4 @@
-// Spec: Genesis Markdown/50-Risk/Safety Invariants.md · Genesis Markdown/10-Architecture/MCP Gateway.md
+// Spec: Genesis Markdown/50-Risk/Safety Invariants.md · 30-MCP/MCP Gateway.md
 //
 // The nodes that are not ordinary LLM agents:
 //
@@ -76,7 +76,7 @@ export const McpNode = memo(function McpNode({ data }: NodeProps<McpFlowNode>) {
   return (
     <div
       title={`${server.pathway} · ${server.status} — ${server.what}`}
-      style={{ width: 190, opacity: data.dimmed ? 0.18 : server.status === 'build' ? 0.62 : 1 }}
+      style={{ width: 190, opacity: data.dimmed ? 'var(--dim-out)' : server.status === 'build' ? 0.78 : 1 }}
     >
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
@@ -121,7 +121,7 @@ export const MemoryNode = memo(function MemoryNode({ data }: NodeProps<MemoryFlo
   return (
     <div
       title={data.layer.question}
-      style={{ width: 168, opacity: data.dimmed ? 0.18 : 1 }}
+      style={{ width: 168, opacity: data.dimmed ? 'var(--dim-out)' : 1 }}
     >
       <Handle type="target" position={Position.Top} />
       <Handle type="source" position={Position.Top} />

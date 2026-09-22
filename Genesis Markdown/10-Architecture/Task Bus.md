@@ -1,8 +1,8 @@
 ---
 title: Task Bus
 tags: [architecture, core]
-status: building
-implemented_by: [src/genesis/bus/bus.py, src/genesis/bus/task.py, tests/bus/test_task_bus.py]
+status: built
+implemented_by: [src/genesis/bus/bus.py, src/genesis/bus/task.py, tests/bus/test_task_bus.py, src/genesis/bus/__init__.py, evals/test_agent_routing.py]
 ---
 
 # Task Bus

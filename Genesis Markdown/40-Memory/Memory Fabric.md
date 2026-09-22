@@ -1,7 +1,7 @@
 ---
 title: Memory Fabric
 tags: [memory, moc, core]
-status: building
+status: built
 implemented_by: [src/genesis/memory/db.py, src/genesis/memory/episodic.py, src/genesis/memory/ledger.py, src/genesis/memory/__init__.py, ui/src/views/MemoryFabric.tsx, ui/src/components/graph/ForceGraph.tsx]
 ---
 

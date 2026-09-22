@@ -67,8 +67,27 @@ CREATE TABLE IF NOT EXISTS orders (
     trace_id         TEXT NOT NULL,
     strategy         TEXT,
     ts               TEXT NOT NULL,
+    -- Phase 7 (2026-09-13): what the broker needs to be matched back to us.
+    proposal_id      TEXT,
+    con_id           INTEGER,            -- the broker's contract id
+    role             TEXT,               -- entry | stop | target | close
+    bracket_group    TEXT,
+    stop_price       TEXT,
+    trail_amount     TEXT,
     UNIQUE (account_id, client_order_id)
 );
+
+-- An order's life, one row per transition. `orders` is append-only and holds
+-- one row per order, so its state is the latest event here, never an UPDATE.
+CREATE TABLE IF NOT EXISTS order_events (
+    id               TEXT PRIMARY KEY,
+    account_id       TEXT NOT NULL,
+    client_order_id  TEXT NOT NULL,
+    state            TEXT NOT NULL,
+    detail           TEXT,
+    ts               TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS order_events_order ON order_events(account_id, client_order_id, ts);
 
 CREATE TABLE IF NOT EXISTS fills (
     id               TEXT PRIMARY KEY,
@@ -150,7 +169,7 @@ CREATE TABLE IF NOT EXISTS reconciliations (
 """
 
 # Append-only, enforced by the database on every money table.
-for _table in ("orders", "fills", "cash_flows", "entries"):
+for _table in ("orders", "order_events", "fills", "cash_flows", "entries"):
     SCHEMA += f"""
 CREATE TRIGGER IF NOT EXISTS {_table}_no_update
 BEFORE UPDATE ON {_table}
@@ -421,6 +440,107 @@ class TradeLedger:
             raise
 
         return replace(fill, id=fill_id)
+
+    # ------------------------------------------------------------------
+    # Orders (Phase 7)
+    # ------------------------------------------------------------------
+
+    _ORDER_COLS = (
+        "id", "account_id", "client_order_id", "broker_order_id", "approval_id",
+        "symbol", "side", "qty", "order_type", "limit_price", "state", "trace_id",
+        "strategy", "ts", "proposal_id", "con_id", "role", "bracket_group",
+        "stop_price", "trail_amount",
+    )
+
+    def record_order(self, order: dict[str, Any], detail: str | None = None) -> dict[str, Any]:
+        """Append one order and its ``new`` event atomically.
+
+        ``approval_id`` is NOT NULL in the schema: an order without the risk
+        gate's approval cannot reach disk, let alone the broker. A repeated
+        ``client_order_id`` raises -- that is the idempotency key doing its job,
+        and a caller that hits it was about to place a duplicate.
+        """
+        row = {c: order.get(c) for c in self._ORDER_COLS}
+        row["id"] = row["id"] or new_id("ord")
+        for money in ("limit_price", "stop_price", "trail_amount"):
+            if row[money] is not None:
+                row[money] = str(_d(row[money]))
+        with transaction(self._conn) as tx:
+            tx.execute(
+                f"INSERT INTO orders ({','.join(self._ORDER_COLS)}) "
+                f"VALUES ({','.join('?' * len(self._ORDER_COLS))})",
+                tuple(row[c] for c in self._ORDER_COLS),
+            )
+            tx.execute(
+                "INSERT INTO order_events (id, account_id, client_order_id, state, detail, ts) "
+                "VALUES (?,?,?,?,?,?)",
+                (new_id("oev"), row["account_id"], row["client_order_id"], row["state"],
+                 detail, row["ts"]),
+            )
+        return row
+
+    def record_order_event(self, account_id: str, client_order_id: str, state: str,
+                           ts: str, detail: str | None = None) -> bool:
+        """Append a transition. A repeat of the current state is a no-op."""
+        if self.order_state(account_id, client_order_id) == state:
+            return False
+        with transaction(self._conn) as tx:
+            tx.execute(
+                "INSERT INTO order_events (id, account_id, client_order_id, state, detail, ts) "
+                "VALUES (?,?,?,?,?,?)",
+                (new_id("oev"), account_id, client_order_id, state, detail, ts),
+            )
+        return True
+
+    def first_event_detail(self, account_id: str, client_order_id: str) -> str | None:
+        """The detail written with an order's ``new`` event -- the proposal it came from."""
+        row = self._conn.execute(
+            "SELECT detail FROM order_events WHERE account_id = ? AND client_order_id = ? "
+            "ORDER BY ts, rowid LIMIT 1", (account_id, client_order_id),
+        ).fetchone()
+        return row["detail"] if row else None
+
+    def symbol_con_ids(self) -> dict[str, int]:
+        return {r["symbol"]: r["con_id"] for r in self._conn.execute(
+            "SELECT symbol, con_id FROM orders WHERE con_id IS NOT NULL GROUP BY symbol")}
+
+    def order_state(self, account_id: str, client_order_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT state FROM order_events WHERE account_id = ? AND client_order_id = ? "
+            "ORDER BY ts DESC, rowid DESC LIMIT 1",
+            (account_id, client_order_id),
+        ).fetchone()
+        return row["state"] if row else None
+
+    def order(self, account_id: str, client_order_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM orders WHERE account_id = ? AND client_order_id = ?",
+            (account_id, client_order_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def orders(self, *, account_id: str | None = None, since: str | None = None) -> list[dict[str, Any]]:
+        sql, params = "SELECT * FROM orders WHERE 1=1", []
+        if account_id is not None:
+            sql += " AND account_id = ?"
+            params.append(account_id)
+        if since is not None:
+            sql += " AND ts >= ?"
+            params.append(since)
+        return [dict(r) for r in self._conn.execute(sql + " ORDER BY ts, id", params)]
+
+    def symbol_for_con_id(self, con_id: int) -> str | None:
+        row = self._conn.execute(
+            "SELECT symbol FROM orders WHERE con_id = ? LIMIT 1", (con_id,)
+        ).fetchone()
+        return row["symbol"] if row else None
+
+    def record_reconciliation(self, account_id: str, matched: bool, detail: str, ts: str) -> None:
+        with transaction(self._conn) as tx:
+            tx.execute(
+                "INSERT INTO reconciliations (id, account_id, matched, detail, ts) VALUES (?,?,?,?,?)",
+                (new_id("rec"), account_id, int(matched), detail, ts),
+            )
 
     # ------------------------------------------------------------------
     # Recovery

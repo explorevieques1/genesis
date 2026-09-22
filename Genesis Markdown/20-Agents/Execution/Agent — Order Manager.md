@@ -4,8 +4,8 @@ tags: [agent, execution, risk]
 family: execution
 cadence: event
 tier: none
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/execution/order_manager.py, src/genesis/server/execution_routes.py, tests/execution/test_order_manager.py, tests/execution/fake_broker.py, ui/src/api/useExecState.ts, ui/src/workspace/panels/trade.tsx]
 ---
 
 # 📤 Agent — Order Manager
@@ -107,6 +107,47 @@ Write: `ledger` (via the accountant), `order-manager`
 - Simulated disconnect mid-placement produces exactly one order, never two.
 - Restart adopts existing broker orders without duplicating them.
 - Works with all LLM backends down.
+
+## Implementation (2026-09-14)
+
+One thread owns the order connection, the ledger handle and the approval book;
+routes hand it work through `call()`. Every order is written to the ledger
+before it is sent; a failed placement is recorded as rejected and never retried.
+
+**Brackets.** A limit entry goes as a native IBKR bracket. A market entry's
+fixed stop and target are placed **at the real fill price** the moment the fill
+arrives, as a standalone OCA pair — an absolute price guessed from a delayed
+quote can land on the wrong side of the fill. A trailing stop needs no price
+and always travels with the parent. Failure to place protection is retried
+twice by the grace monitor, then the position is flattened.
+
+**What the paper gateway taught (all reproduced in `fake_broker.py`):**
+- A bracket child given an explicit OCA group is rejected on its first
+  modification *and cancelled* (10326). Native children carry no group.
+- A market order can fill inside `place()`; protection is registered first.
+- Blocking IBKR calls inside an event callback raise "event loop already
+  running" after the order has gone out. Callback-triggered work is deferred
+  until the callback returns, and protection placement first checks coverage.
+- IBKR will not change an order's type in place (329). Converting a stop to a
+  trailing stop places a whole new stop+target set one tick beyond the old one
+  in a fresh OCA group, waits until it is working, then retires the old set.
+- Cancelling an order that is already gone is a no-op, or a flatten would stop
+  before sending its close.
+
+**Management.** Move a limit entry (its stop and target move with it) · move a
+stop (widening is re-checked by the gate) · stop to breakeven · convert to or
+adjust a trailing stop · move a target · cancel (a protective stop on an open
+position is refused) · flatten or close part, which shrinks stops and targets to
+the remaining position first so an exit can never reverse it.
+
+**Restart.** Orders are GTC under the fixed `execution.client_id`; on reconnect
+reconciliation matches every working order and today's executions to the
+ledger by `orderRef`, and positions by quantity. Anything Genesis did not place
+halts trading until the trader adopts it from the panel (`/v1/exec/adopt`).
+
+Deviation: until [[Agent — Position And PnL Accountant]] exists, the order
+manager writes fills to the ledger itself. Average entry is not compared in
+reconciliation — IBKR's futures `avgCost` includes commission.
 
 ## Related
 

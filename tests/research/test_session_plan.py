@@ -145,10 +145,14 @@ def test_an_equity_is_not_on_a_futures_desk() -> None:
 
 def test_the_ticket_is_the_trade_panels_own_shape() -> None:
     """Priced at the zone's far edge: the fill furthest from the stop, so the size survives it."""
-    t = ticket_for(idea(), NQ, max_contracts=2)
+    t = ticket_for(idea(), NQ, max_contracts=2, idea_id="res_01ABC")
     assert t == {"symbol_id": NQ, "side": "buy", "qty": 2, "order_type": "limit",
                  "limit_price": "20050", "stop": {"kind": "fixed", "price": "19950"},
-                 "origin": "plan", "target": {"price": "20200"}}
+                 # `{kind, ref}` per Order And Fill Schema, not the bare "plan"
+                 # this used to carry. The ref is how a fill is traced back to
+                 # the idea that proposed it, and therefore the only reason the
+                 # weekly review can ever slice by where an idea came from.
+                 "origin": {"kind": "idea", "ref": "res_01ABC"}, "target": {"price": "20200"}}
 
 
 # --------------------------------------------------------------------------
@@ -160,7 +164,7 @@ def test_the_size_is_the_gates_answer_to_the_exact_ticket() -> None:
     size = gate(approved=1, decision="resize", binding="portfolio_heat")
     p = plan([idea()], size=size)
     item = p.items[0]
-    assert size.calls == [ticket_for(idea(), NQ, max_contracts=2)]
+    assert size.calls == [ticket_for(idea(), NQ, max_contracts=2, idea_id=p.items[0].idea_id)]
     assert item.size == 1 and item.binding == "portfolio_heat"
     assert "sized down by portfolio_heat" in item.conflicts
 

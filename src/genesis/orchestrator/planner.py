@@ -45,6 +45,7 @@ from genesis.orchestrator.plan import (
     Plan,
     PlanError,
     parse_plan,
+    prune_unrunnable,
     validate_plan,
 )
 from genesis.orchestrator.registry import CapabilityRegistry
@@ -202,12 +203,26 @@ class Planner:
 
         try:
             candidate = parse_plan(data, utterance=utterance)
+            # Prune before validating. One task naming an agent that does not
+            # exist used to reject the whole plan, so "research market cycles
+            # and add it to my library" ran nothing and answered from the large
+            # tier -- prose, and no saved note. The runnable half now runs, and
+            # what was dropped is said rather than swallowed.
+            candidate, dropped = prune_unrunnable(candidate, self.registry)
+            # Everything unrunnable is the old whole-plan rejection, and the
+            # reasons are the audit line -- "no agent named 'order-manager'" is
+            # what says an injected utterance was refused. Never let the empty
+            # remainder answer with the shrug of "the plan has no tasks".
+            if dropped and not candidate.tasks:
+                return outcome(None, "the plan was rejected: " + "; ".join(dropped))
             plan = validate_plan(candidate, self.registry, max_tasks=self.max_tasks)
         except PlanError as exc:
             return outcome(None, f"the plan was rejected: {exc}")
 
         if plan.verbosity != self.verbosity:
             plan = plan.model_copy(update={"verbosity": self.verbosity})
+        if dropped:
+            return outcome(plan, "planned, dropped " + "; ".join(dropped))
         return outcome(plan, "planned")
 
     def _user_prompt(self, utterance: str, context: str) -> str:

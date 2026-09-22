@@ -19,12 +19,18 @@ carrying the parent's reason, so the spoken failure names the actual cause --
 going quiet or blaming the last task in the chain. Silence on failure is the
 behaviour Error Handling And Degradation and Safety Invariants §10 both forbid.
 
-The runner holds ids and one sentence per plan. It never reads a task's
-``data``.
+**Remember what was learned.** Every finished task about a company becomes a
+finding in the research directory (``genesis.research.findings``), and a task
+whose finding is still fresh is answered from it instead of being run again.
+Both decisions are code: which company, how old, whether it is reusable. The
+runner hands task data to the store and never reads it itself.
 """
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,6 +40,13 @@ from genesis.orchestrator.plan import Plan
 from genesis.orchestrator.tools import OrchestratorTools, PlanHandle, PlanState
 
 __all__ = ["PlanRunner"]
+
+log = logging.getLogger(__name__)
+
+#: How long a watcher waits for a slow plan before giving up on recording it.
+#: Longer than any research pass; a backtest that outlives it is recorded when
+#: it is collected, if it ever is.
+RECORD_WAIT_S = 30 * 60
 
 #: How long a spoken failure reason may be. Long enough for a real cause, short
 #: enough that a stack trace or a paragraph of provider error cannot be read
@@ -51,6 +64,12 @@ class PlanRunner:
     #: Plans that outlived their await window, still running. Spoken on
     #: :meth:`collect`, which the voice loop calls while it is idle.
     _watching: dict[str, PlanHandle] = field(default_factory=dict, repr=False)
+    #: The research directory findings are written to and reused from. ``None``
+    #: turns both off: every task runs, nothing is remembered.
+    research: Any = None
+    #: One writer at a time: the research store's connection is shared, and two
+    #: plans finishing together must not interleave their transactions.
+    _record_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     # -- the voice-path entry point ---------------------------------------
 
@@ -61,6 +80,9 @@ class PlanRunner:
         -- done, failed, or still running. There is no path through this method
         that leaves the operator without a sentence.
         """
+        plan, reused = self._reuse(plan)
+        if plan is None:
+            return Answer(reused, "plan:reused")
         try:
             handle = self.tools.dispatch(plan)
         except Exception as exc:  # noqa: BLE001 - a dispatch fault must not be silence
@@ -74,8 +96,12 @@ class PlanRunner:
         state = self.tools.await_plan(handle.plan_id, self.await_ms)
         if not state.done:
             self._watching[handle.plan_id] = handle
-            return Answer(_still_running(plan), f"plan:{handle.plan_id}:running")
-        return self._final_answer(handle, state)
+            self._record_when_done(handle)
+            # What is already known is said now, not after a minute's wait.
+            text = f"{reused} {_still_running(plan)}" if reused else _still_running(plan)
+            return Answer(text, f"plan:{handle.plan_id}:running")
+        answer = self._final_answer(handle, state)
+        return Answer(f"{reused} {answer.text}", answer.source) if reused else answer
 
     # -- the idle path ------------------------------------------------------
 
@@ -105,7 +131,111 @@ class PlanRunner:
 
     # -- turning an outcome into a sentence --------------------------------
 
+    # -- findings: reuse before, record after ------------------------------
+
+    def known(self, text: str) -> str:
+        """Stored findings about the companies ``text`` names -- planner context."""
+        if self.research is None:
+            return ""
+        from genesis.research.findings import recall
+
+        try:
+            return recall(self.research, text)
+        except Exception:  # noqa: BLE001 - recall is an aid; planning goes on without it
+            log.exception("findings recall failed")
+            return ""
+
+    def _reuse(self, plan: Plan) -> tuple[Plan | None, str]:
+        """Drop tasks a fresh finding already answers. ``(None, text)`` if all were.
+
+        Only a task nothing else in the plan depends on is dropped: a dependent
+        reads its parent's result off the bus, and a finding is not on the bus.
+        """
+        from genesis.research.findings import asks_for_fresh, reusable, symbol_of
+        from genesis.screener.snapshot import load_snapshot
+
+        if self.research is None or asks_for_fresh(plan.utterance):
+            return plan, ""
+        try:
+            rows = load_snapshot().rows
+            parents = {d for t in plan.tasks for d in t.depends_on}
+            hits = {}
+            for task in plan.tasks:
+                symbol = None if task.id in parents else symbol_of(task.args, rows)
+                note = reusable(self.research, task.type, symbol) if symbol else None
+                if note is not None:
+                    hits[task.id] = note
+        except Exception:  # noqa: BLE001 - a reuse fault costs a rerun, never the answer
+            log.exception("findings reuse check failed")
+            return plan, ""
+        if not hits:
+            return plan, ""
+
+        said = " ".join(
+            f"As of {n.created:%b %-d, %H:%M} UTC: {n.summary}" for n in hits.values()
+        )
+        remaining = [t for t in plan.tasks if t.id not in hits]
+        if not remaining:
+            return None, said + " Say refresh to run it again."
+        speak_after = plan.speak_after if plan.speak_after not in hits else remaining[-1].id
+        return plan.model_copy(update={"tasks": tuple(remaining), "speak_after": speak_after}), said
+
+    def _record_when_done(self, handle: PlanHandle) -> None:
+        """Record a slow plan's findings when it lands, whoever speaks it.
+
+        Only the voice loop calls :meth:`collect`. A typed sentence whose plan
+        outlives the await window would otherwise never be remembered, which
+        is most research: learning must not depend on someone listening.
+        """
+        if self.research is None:
+            return
+
+        def wait() -> None:
+            deadline = time.monotonic() + RECORD_WAIT_S
+            try:
+                while time.monotonic() < deadline:
+                    if self.tools.plan_state(handle.plan_id).done:
+                        self._record(handle)
+                        return
+                    time.sleep(1.0)
+            except Exception:  # noqa: BLE001 - a closed bus is shutdown, not a crash
+                log.debug("stopped watching %s for findings", handle.plan_id, exc_info=True)
+
+        # ponytail: a sleeping thread per slow plan; a bus completion hook if
+        # plans ever number in the hundreds.
+        threading.Thread(target=wait, daemon=True, name=f"findings-{handle.plan_id}").start()
+
+    def _record(self, handle: PlanHandle) -> None:
+        """Every finished task of the plan, stored as a finding. Idempotent."""
+        if self.research is None:
+            return
+        from genesis.research.findings import record
+        from genesis.screener.snapshot import load_snapshot
+
+        try:
+            rows = load_snapshot().rows
+            with self._record_lock:
+                for task_id in handle.task_ids.values():
+                    task = self.tools.bus.get(task_id)
+                    if task is not None and task.state is TaskState.DONE:
+                        record(self.research, task, rows=rows)
+        except Exception:  # noqa: BLE001 - the answer is already earned; say it
+            log.exception("recording findings for %s failed", handle.plan_id)
+
+    def _since_last_time(self, task_id: str) -> str:
+        """" Last time (Sep 12): ..." for a finding that replaced an older read."""
+        if self.research is None:
+            return ""
+        from genesis.research.findings import previous
+
+        current = self.research.note(f"res_fnd_{task_id}")
+        before = previous(self.research, current) if current is not None else None
+        if before is None or not before.summary or before.summary == current.summary:
+            return ""
+        return f" Last time ({before.created:%b %-d}): {_clip(before.summary)}"
+
     def _final_answer(self, handle: PlanHandle, state: PlanState) -> Answer:
+        self._record(handle)
         if state.any_failed:
             return Answer(self._failure_sentence(handle, state), f"plan:{handle.plan_id}:failed")
 
@@ -114,7 +244,7 @@ class PlanRunner:
         if summary:
             if self.memory is not None:
                 self.memory.note_result(task_id, summary)
-            return Answer(summary, f"plan:{handle.plan_id}")
+            return Answer(summary + self._since_last_time(task_id), f"plan:{handle.plan_id}")
 
         # Done, but the agent gave nothing to say. Saying so is better than
         # inventing a summary, and it is a real bug report about that agent --

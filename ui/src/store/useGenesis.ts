@@ -409,6 +409,9 @@ export const useGenesis = create<GenesisStore>((set, get) => ({
         coreState = 'alert'
       }
 
+      else if ((e as { event: string }).event === 'halt.cleared') {
+        safety = { ...safety, halted: false, haltTrigger: null, asOf: ts }
+      }
       else if (is(e, 'halt.engaged')) {
         safety = { ...safety, halted: true, haltTrigger: e.data.trigger, asOf: ts }
         coreState = 'alert'

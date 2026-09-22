@@ -4,8 +4,8 @@ tags: [agent, execution]
 family: execution
 cadence: market-open, event
 tier: none
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/agents/execution/execution_quality.py, tests/execution/test_execution_quality.py]
 ---
 
 # 📏 Agent — Execution Quality
@@ -111,6 +111,18 @@ Write: `execution-quality`
   errors here are easy and silent).
 - Daily aggregate feeds a cost model that [[Agent — Backtest Runner]] actually consumes.
 - `pathological` verdict fires on an obviously bad fill and never on a normal one.
+
+## Implementation (2026-09-14)
+
+Measured on every fill from the order manager: arrival slippage (bps and
+dollars, positive = adverse), spread at arrival, time to fill, fees, and
+adverse selection 30 s after. Stop fills are measured against their own trigger
+price. **A fill benchmarked against a delayed quote gets verdict `unmeasured`**
+— on IBKR's free feed the arrival mid is 10–15 minutes old, and slippage against
+it measures the delay. The daily aggregate counts those separately rather than
+averaging them in. Served at `/v1/exec/quality`, shown in the trade panel.
+Not built: signal slippage (no strategy signals yet), feeding the backtest cost
+model.
 
 ## Related
 

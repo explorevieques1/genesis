@@ -1,36 +1,17 @@
-// Spec: Genesis Markdown/10-Architecture/Orchestrator.md · 20-Agents/Agent Contract.md
+// Spec: Genesis Markdown/10-Architecture/Orchestrator.md · 10-Architecture/Agent Contract.md
 //
-// Automation: workflows, and what exists in their place today.
+// Automation: the schedule that is running.
 //
-// The requested feature is a visual workflow builder — a canvas where a person
-// wires steps together and Genesis runs the result. There is no backend for it
-// (`automation.workflows` probes false), so the builder is not drawn.
-//
-// But "not built" is not the whole truth here, and rendering only an empty
-// state would be its own kind of lie. Genesis already *has* automation: eleven
-// agents with real cadences, declared in code — `market-open: 30s`,
-// `market-closed: 120s`, `on event: agent.down`. That is a running schedule,
-// and it is the thing a workflow builder would eventually author. So this page
-// shows the automation that exists, and is explicit that authoring new
-// workflows from the UI does not.
-//
-// The distinction matters for what gets built next. A workflow engine is not a
-// greenfield feature — it is a way to declare what `AgentDeclaration.cadence`
-// already expresses, and it should extend that rather than sit beside it.
+// Declared agents and enabled workflows side by side, with no structural
+// distinction — a workflow compiles to an AgentDeclaration and runs on the same
+// scheduler (Automation.md). A workflow row opens itself in WB.
 
 import { api, type AgentRow } from '@/api/client'
 import { useRead } from '@/api/useRead'
-import { useCapability } from '@/api/capabilities'
-import { Absent, Loading, Unbuilt } from '@/components/States'
+import { Absent, Loading } from '@/components/States'
 import { Chip, PanelBody, Section } from '@/components/Primitives'
 import { stagger } from '@/lib/motion'
-
-/** The builder itself. Absent, and says which note specifies it. */
-export function WorkflowBuilderPanel() {
-  const capability = useCapability('automation.workflows')
-  if (!capability) return <Loading rows={3} />
-  return <Unbuilt capability={capability} />
-}
+import { openPanel } from '@/workspace/dock'
 
 /**
  * The schedule that is actually running: every agent's declared cadence.
@@ -40,6 +21,7 @@ export function WorkflowBuilderPanel() {
  */
 export function CadencePanel() {
   const { state, reload } = useRead(() => api.agents(), [])
+  const alerts = useRead(() => api.automationAlerts(12), [])
 
   if (state.status === 'loading') return <Loading rows={5} label="cadences" />
   if (state.status !== 'ready') return <Absent reason={state.reason} onRetry={reload} />
@@ -68,10 +50,27 @@ export function CadencePanel() {
   return (
     <PanelBody>
       <div className="label" style={{ color: 'var(--ink-ghost)', textTransform: 'none', letterSpacing: 0, lineHeight: 1.5 }}>
-        These are real, running schedules — declared in each agent's
-        `AgentDeclaration` and executed by the daemon. Not a mock of what a
-        workflow engine would do.
+        Real, running schedules — declared in an agent's code or saved from the
+        workflow builder, and executed by the same daemon. Click a workflow to
+        open it.
       </div>
+
+      {alerts.state.status === 'ready' && alerts.state.data.alerts.length ? (
+        <Section title="recent alerts" dense actions={<button className="btn-ghost" onClick={alerts.reload}>refresh</button>}>
+          <div className="flex flex-col" style={{ gap: 4 }}>
+            {alerts.state.data.alerts.map((a) => (
+              <div key={a.alert_id} style={{ fontSize: 'var(--fs-tiny)', borderLeft: `2px solid ${a.urgency === 'always' ? 'var(--state-down)' : 'var(--state-degraded)'}`, paddingLeft: 6 }}>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: 'var(--ink)' }}>{a.title}</span>
+                  <span style={{ flex: 1 }} />
+                  <span className="num" style={{ color: 'var(--ink-ghost)' }}>{a.at.replace('T', ' ').slice(5, 16)}</span>
+                </div>
+                {a.message ? <div style={{ color: 'var(--ink-faint)', whiteSpace: 'pre-wrap' }}>{a.message.slice(0, 280)}</div> : null}
+              </div>
+            ))}
+          </div>
+        </Section>
+      ) : null}
 
       {[...byTrigger.entries()].map(([trigger, entries]) => (
         <Section key={trigger} title={trigger.replace(/-/g, ' ')} dense>
@@ -82,9 +81,23 @@ export function CadencePanel() {
                 className="flex items-center gap-2 lift"
                 style={{ ['--i' as string]: stagger(index, 16), fontSize: 'var(--fs-tiny)' }}
               >
-                <span style={{ color: 'var(--ink-dim)', minWidth: 132 }}>
-                  {agent.name ?? agent.id}
-                </span>
+                {agent.workflow ? (
+                  <button
+                    className="btn-ghost"
+                    style={{ minWidth: 132, textAlign: 'left', padding: 0, border: 0 }}
+                    onClick={() => openPanel('workflow-builder', {
+                      id: `workflow-builder:${agent.workflow}`,
+                      title: agent.name ?? agent.id,
+                      params: { workflowId: agent.workflow },
+                    })}
+                  >
+                    {agent.name ?? agent.id}
+                  </button>
+                ) : (
+                  <span style={{ color: 'var(--ink-dim)', minWidth: 132 }}>
+                    {agent.name ?? agent.id}
+                  </span>
+                )}
                 {agent.reflex && <Chip tone="spinal">reflex</Chip>}
                 <span style={{ flex: 1 }} />
                 <span className="num" style={{ color: 'var(--ink-faint)' }}>{when}</span>

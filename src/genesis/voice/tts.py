@@ -221,8 +221,23 @@ class PiperTTS:
                 spoken_summary=None,
             ) from exc
         assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write(spoken.encode())
-        proc.stdin.close()
-        while chunk := proc.stdout.read(4096):
-            yield chunk
-        proc.wait()
+        try:
+            proc.stdin.write(spoken.encode())
+            proc.stdin.close()
+            while chunk := proc.stdout.read(4096):
+                yield chunk
+            if proc.wait(timeout=5) != 0:
+                raise DegradedError(
+                    f"local TTS {self.binary!r} exited {proc.returncode}"
+                )
+        finally:
+            # Barge-in closes this generator mid-sentence -- that is the normal
+            # case, not the exception -- and a generator abandoned without this
+            # leaves a piper process holding the audio pipe. Do that a few
+            # times in a session and the machine is full of them.
+            if proc.poll() is None:
+                proc.kill()
+            for pipe in (proc.stdin, proc.stdout):
+                if pipe is not None and not pipe.closed:
+                    pipe.close()
+            proc.wait(timeout=5)

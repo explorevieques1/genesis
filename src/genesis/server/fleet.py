@@ -30,11 +30,12 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
+from dataclasses import dataclass
 from typing import Any
 
 log = logging.getLogger(__name__)
 
-__all__ = ["discover_agents", "AGENT_PACKAGES"]
+__all__ = ["discover_agents", "AGENT_PACKAGES", "FLEET_STATE", "FleetState"]
 
 #: Where agent modules live. A new family is a new entry here — and the fact
 #: that adding one is a code change rather than a config edit is deliberate:
@@ -42,6 +43,7 @@ __all__ = ["discover_agents", "AGENT_PACKAGES"]
 AGENT_PACKAGES: tuple[str, ...] = (
     "genesis.agents.charting",
     "genesis.agents.journal",
+    "genesis.agents.research",
 )
 
 
@@ -99,6 +101,27 @@ def discover_agents() -> list[dict[str, Any]]:
             seen.add(record["id"])
             agents.append(record)
 
+    # Enabled workflows are agents too -- compiled from a store row rather than
+    # a module, and listed through the same `_describe` so the cadence view
+    # draws them with no distinction. Automation.md: one scheduler, one roster.
+    try:
+        from genesis.automation import open_store
+        from genesis.automation.workflow import compile_declaration
+
+        store = open_store()
+        try:
+            for version in store.list():
+                if not version.enabled:
+                    continue
+                record = _describe(compile_declaration(version.workflow()),
+                                   "genesis.automation.workflow")
+                record["workflow"] = version.workflow_id
+                agents.append(record)
+        finally:
+            store.close()
+    except Exception as exc:  # noqa: BLE001 - a bad store must not blank the fleet
+        log.warning("workflows could not be listed: %s", exc)
+
     agents.sort(key=lambda a: (a.get("family", ""), a.get("id", "")))
     return agents
 
@@ -130,3 +153,51 @@ def _describe(declaration: Any, module_name: str) -> dict[str, Any]:
         "timeout_sec": data.get("timeout_sec"),
         "max_concurrent": data.get("max_concurrent"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Whether the fleet behind this server actually came up
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FleetState:
+    """One process-wide answer to "is there a fleet behind this UI?".
+
+    It exists because of a two-day outage nobody saw. A capability declaration
+    was 28 characters too long, `_warm_fleet`'s `except Exception` caught the
+    error, logged one line into a five-megabyte log, and the server carried on
+    serving. `/v1/health` returned `{"ok": true, "idle": true}` — a constant —
+    so `./genesis status` said `healthy` while no cron fired, no workflow ran
+    and no agent existed, for two days.
+
+    Biological Design calls that drift between believed and actual state, and
+    names it the failure that loses money quietly. A health check that cannot
+    report the difference is not proprioception; it is a ping.
+    """
+
+    #: ``starting`` until the fleet thread finishes, then ``up`` or ``failed``.
+    #: ``disabled`` when the operator asked for no daemon, which is a choice
+    #: rather than a fault and must not read as one.
+    state: str = "starting"
+    detail: str = ""
+    agents: int = 0
+
+    def set(self, state: str, *, detail: str = "", agents: int = 0) -> None:
+        self.state, self.detail, self.agents = state, detail, agents
+
+    @property
+    def ok(self) -> bool:
+        return self.state in ("up", "disabled")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "state": self.state,
+            "detail": self.detail,
+            "agents": self.agents,
+            "ok": self.ok,
+        }
+
+
+#: The holder. One per process, like the gateway and the analyst.
+FLEET_STATE = FleetState()

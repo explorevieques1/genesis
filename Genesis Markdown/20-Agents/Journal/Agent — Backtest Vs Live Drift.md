@@ -4,8 +4,8 @@ tags: [agent, journal]
 family: journal
 cadence: market-closed
 tier: large
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/journal/drift.py, src/genesis/journal/drift.py, tests/journal/test_agents.py]
 ---
 
 # 📉 Agent — Backtest Vs Live Drift

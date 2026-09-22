@@ -1,8 +1,8 @@
 ---
 title: Observability
 tags: [architecture]
-status: building
-implemented_by: [src/genesis/observability.py, src/genesis/cli.py, tests/test_observability.py]
+status: built
+implemented_by: [src/genesis/observability.py, src/genesis/cli.py, tests/test_observability.py, ui/src/views/TraceView.tsx, tests/test_fleet_health.py]
 ---
 
 # Observability

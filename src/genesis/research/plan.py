@@ -41,7 +41,8 @@ __all__ = ["PlanItem", "SessionPlan", "build_plan", "contract_for", "ticket_for"
 
 
 def contract_for(
-    symbol: str, *, allowlist: Sequence[str], configured: Iterable[str]
+    symbol: str, *, allowlist: Sequence[str], configured: Iterable[str],
+    futures_roots: Sequence[str] | None = None,
 ) -> tuple[str | None, str | None]:
     """``(symbol_id, why_not)``. Deterministic; ambiguity surfaced, never picked.
 
@@ -49,8 +50,14 @@ def contract_for(
     Open Questions §13 forbids guessing "the front month" -- so the month comes
     from the contracts this install has configured, and "NQ" with two of them
     configured is a question for the trader, not a choice for the plan.
+
+    An **equity or ETF** has no month and needs none: `SPY` resolves straight to
+    `EQ:XNAS:SPY`. The two are told apart by ``futures_roots`` -- the risk
+    envelope's own list -- rather than by guessing from the ticker's shape,
+    because plenty of equity tickers look exactly like futures roots.
     """
     s = symbol.strip()
+    futures = {r.upper() for r in (futures_roots if futures_roots is not None else allowlist)}
     if s.upper().startswith("FUT:"):
         root = s.split(":")[2].upper() if s.count(":") >= 3 else ""
         if root not in allowlist:
@@ -58,9 +65,22 @@ def contract_for(
         return s, None
     root = s.upper()
     if root not in allowlist:
+        shown = list(allowlist)
         return None, (
-            f"{root} is not on the allow-list — this desk trades {', '.join(allowlist)}"
+            f"{root} is not on the allow-list — this desk trades "
+            + (", ".join(shown) if len(shown) <= 12
+               else f"{len(shown)} symbols: {', '.join(shown[:8])}…")
         )
+    if root not in futures:
+        # An equity or ETF on the allow-list. `resolve_symbol` is the one
+        # resolver in the system, and it refuses what it cannot resolve rather
+        # than inventing an exchange.
+        from genesis.marketdata.source import resolve_symbol
+
+        try:
+            return resolve_symbol(root), None
+        except Exception as exc:  # noqa: BLE001 - an unresolvable ticker is a reason, not a crash
+            return None, f"{root} could not be resolved to an instrument: {exc}"
     matches = sorted(
         {c for c in configured if c.upper().startswith("FUT:") and c.split(":")[2].upper() == root}
     )
@@ -74,7 +94,7 @@ def contract_for(
     )
 
 
-def ticket_for(idea: Idea, symbol_id: str, *, max_contracts: int) -> dict[str, Any] | None:
+def ticket_for(idea: Idea, symbol_id: str, *, max_contracts: int, idea_id: str = "") -> dict[str, Any] | None:
     """The trade panel's own ticket shape. ``None`` when the idea cannot be sized.
 
     Asks for the most the envelope could ever allow and lets the gate resize it
@@ -97,7 +117,10 @@ def ticket_for(idea: Idea, symbol_id: str, *, max_contracts: int) -> dict[str, A
         "order_type": "limit",
         "limit_price": _price(hi if idea.direction == "long" else lo),
         "stop": {"kind": "fixed", "price": _price(idea.stop_price)},
-        "origin": "plan",
+        # `{kind, ref}`, per Order And Fill Schema: the ref is what lets a fill
+        # be traced back to the idea that proposed it, and therefore what lets
+        # the weekly review answer "how are the news ideas doing?".
+        "origin": {"kind": "idea", "ref": idea_id},
     }
     if idea.targets:
         ticket["target"] = {"price": _price(idea.targets[0])}
@@ -327,6 +350,9 @@ def build_plan(
     allowlist: Sequence[str],
     configured: Iterable[str],
     max_contracts: int,
+    #: The futures half of the allow-list. Everything else on it is an equity
+    #: or an ETF, which resolves without a contract month.
+    futures_roots: Sequence[str] | None = None,
     size: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     account: Any = None,
     lessons: Sequence[Any] = (),
@@ -361,7 +387,8 @@ def build_plan(
     for idea_id, idea in ideas:
         conflicts: list[str] = []
         blocked = False
-        symbol_id, why = contract_for(idea.symbol, allowlist=allowlist, configured=configured)
+        symbol_id, why = contract_for(idea.symbol, allowlist=allowlist, configured=configured,
+                                      futures_roots=futures_roots)
         if why:
             conflicts.append(why)
             blocked = True
@@ -377,7 +404,7 @@ def build_plan(
             conflicts.append("no entry zone — the gate measures risk from entry to stop")
             blocked = True
         elif symbol_id:
-            ticket = ticket_for(idea, symbol_id, max_contracts=max_contracts)
+            ticket = ticket_for(idea, symbol_id, max_contracts=max_contracts, idea_id=idea_id)
 
         qty = binding = worst = mark = None
         if ticket is not None and size is not None:

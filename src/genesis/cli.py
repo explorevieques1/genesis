@@ -261,6 +261,27 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("biology", help="the organ map: each organ and the build status of its notes")
 
+    # The DNA organ's parity twin. Biological Design calls the vault and the
+    # prompts the genome; this is how a person reads it without opening 220
+    # files, through the same door the `DNA` module uses.
+    dna_p = sub.add_parser("dna", help="the genome: the vault, the prompts, and whether the body map still tells the truth")
+    dna_sub = dna_p.add_subparsers(dest="dna_command")
+    dna_sub.add_parser("status", help="how much of the genome is expressed, by status")
+    dna_check = dna_sub.add_parser("check", help="the six kinds of drift between spec and code")
+    dna_check.add_argument("--fix", action="store_true",
+                           help="reconnect cut nerves and move stale `spec` statuses on")
+    dna_show = dna_sub.add_parser("show", help="one note: its status, its code, and what points at it")
+    dna_show.add_argument("note", help="a note name, as a [[wikilink]] spells it")
+    dna_sub.add_parser("prompts", help="every system prompt, where it lives and how big it is")
+    dna_sub.add_parser("map", help="regenerate 00-Meta/Vault Map.md from the vault")
+
+    # What this desk may trade. A safety control, so it has a door of its own
+    # rather than being a number in a config nobody reads.
+    uni = sub.add_parser("universe", help="the tradeable universe: futures roots, the S&P 500 and the core ETFs")
+    uni_sub = uni.add_subparsers(dest="universe_command")
+    uni_sub.add_parser("show", help="what is allowed, where it came from, and how old it is")
+    uni_sub.add_parser("refresh", help="fetch S&P 500 membership and write the snapshot")
+
     idea = sub.add_parser("idea", help="your trade ideas: record one, list the desk")
     idea_sub = idea.add_subparsers(dest="idea_command", required=True)
     add = idea_sub.add_parser(
@@ -460,6 +481,7 @@ def _warm_fleet(config: Config, console: Console):  # noqa: ANN001
     Returns a callable that shuts the daemon down.
     """
     from genesis.server.analyst import ANALYST
+    from genesis.server.fleet import FLEET_STATE
 
     bus = _open_bus(config)
     daemon = None
@@ -495,9 +517,17 @@ def _warm_fleet(config: Config, console: Console):  # noqa: ANN001
             )
             # Build the ladder now, so the first question does not pay for it.
             ANALYST.ladder()
+            FLEET_STATE.set("up", agents=len(registry))
             if not stopping.is_set():
                 daemon.run_forever()
         except Exception as exc:  # noqa: BLE001 - the UI must outlive its fleet
+            # Recorded, not only logged. This exact line printed once per boot
+            # for two days while `./genesis status` said `healthy` -- a
+            # capability summary 28 characters over its limit had taken down
+            # every cron, every workflow and every agent, and nothing that a
+            # person looks at said so. The UI outliving its fleet is correct;
+            # the UI *claiming to be well* while it does is the bug.
+            FLEET_STATE.set("failed", detail=str(exc))
             console.warn(f"The fleet did not start ({exc}). The UI is still up.")
 
     thread = threading.Thread(target=warm, name="genesis-serve-fleet", daemon=True)
@@ -1656,8 +1686,137 @@ def _cmd_biology(console: Console) -> int:
         for o in organs():
             console.line(mark[o["status"]], f"{o['organ']} — {o['genesis']}")
             with console.nest():
+                if o["summary"]:
+                    console.line("📝", o["summary"])
                 for p in o["parts"]:
                     console.line(mark[p["status"]], f"{p['name']} ({p['status']})")
+    return 0
+
+
+def _cmd_universe(config: Config, console: Console, command: str | None) -> int:
+    """What this desk may trade, and the one command that changes it.
+
+    The allow-list is a safety control. Widening it is a decision, so it is a
+    typed command with a visible result rather than a background refresh —
+    and `show` reports the snapshot's age, because an index membership from
+    three weeks ago permits companies that have since left it.
+    """
+    from genesis.marketdata import universe as uni
+
+    if command == "refresh":
+        try:
+            resolved = uni.refresh(config)
+        except Exception as exc:  # noqa: BLE001 - a vendor being down is not a crash
+            console.error(f"could not refresh the universe: {exc}")
+            console.info("the futures roots and the core ETFs still trade", "·")
+            return 1
+        console.ok(f"universe refreshed — {len(resolved.symbols)} symbols, as of {resolved.as_of}")
+        return 0
+
+    resolved = uni.load(config)
+    console.line("🎯", f"Tradeable universe — {len(resolved.symbols)} symbols")
+    with console.nest():
+        console.line("·", f"futures roots: {', '.join(resolved.futures)}")
+        console.line("·", f"ETFs: {len(resolved.etfs)}")
+        console.line("·", f"equities: {len(resolved.equities)} (S&P 500)")
+        if resolved.as_of:
+            age = resolved.age_days
+            console.line(
+                "⚠️" if resolved.stale else "·",
+                f"membership as of {resolved.as_of}"
+                + (f" — {age:.0f} days old" if age is not None else "")
+                + (", refresh it" if resolved.stale else ""),
+            )
+        if resolved.degraded:
+            console.warn(resolved.degraded)
+        if not config.risk.equity_universe:
+            console.info("equity_universe is off — only the futures roots trade", "·")
+    return 0
+
+
+def _cmd_dna(console: Console, args: Any) -> int:
+    """The `DNA` module's parity twin: one reading of the genome, five views.
+
+    Operating Model §1: anything Genesis can do, a person can do by hand,
+    through the same door. Every number here comes from `genesis.dna`, which is
+    what the route serves the panel — so the panel cannot show a healthy body
+    map while the terminal shows a drifting one.
+    """
+    from genesis import dna
+
+    command = getattr(args, "dna_command", None) or "status"
+    mark = {"built": "●", "building": "◐", "spec": "○", "": "·"}
+
+    if command == "map":
+        count, collisions = dna.write()
+        console.ok(f"wrote the vault map — {count} notes")
+        for name, notes in collisions.items():
+            console.warn(f"`{name}` resolves two ways: " + ", ".join(n.rel for n in notes))
+        return 1 if collisions else 0
+
+    if command == "prompts":
+        found = dna.inventory()
+        console.line("🧬", "Genesis — the prompt half of the genome")
+        with console.nest():
+            for prompt in found:
+                console.line("·", f"{prompt.est_tokens:>5} tok  {prompt.name}  {prompt.file}:{prompt.line}")
+                with console.nest():
+                    console.line(" ", prompt.opening)
+            console.line("Σ", f"{sum(p.est_tokens for p in found)} tokens across {len(found)} prompts (estimated)")
+        return 0
+
+    genome = dna.load()
+
+    if command == "show":
+        note = genome.resolve(args.note)
+        if note is None:
+            console.error(f"no note named {args.note!r} — try `genesis dna status` for the sections")
+            return 1
+        console.line("🧬", f"{note.name} — {note.rel}")
+        with console.nest():
+            console.line(mark.get(note.status, "·"), f"status: {note.status or 'none (not a component)'}")
+            for path in note.implemented_by:
+                console.line("→", f"implemented_by: {path}")
+            for path in genome.pointing_at(note):
+                console.line("←", f"spec pointer in: {path}")
+            if note.links:
+                console.line("·", "links: " + ", ".join(note.links[:12]))
+        return 0
+
+    if command == "check":
+        if args.fix:
+            for rel in dna.repair(genome):
+                console.ok(f"repaired {rel}")
+            genome = dna.load()
+        findings = dna.check(genome)
+        if not findings:
+            console.ok(f"the body map is honest — {len(genome.pointers)} notes have code pointing at them")
+            return 0
+        console.line("🧬", f"{len(findings)} note(s) drifting — the map may not lie")
+        with console.nest():
+            for finding in findings:
+                console.line(finding.glyph, f"{finding.note} — {finding.detail}")
+                with console.nest():
+                    for path in finding.files:
+                        console.line("+", path)
+        return 1
+
+    counts = genome.counts()
+    findings = dna.check(genome)
+    console.line("🧬", "Genesis — the genome: this vault and the prompts")
+    with console.nest():
+        console.line("●", f"{counts['built']} built")
+        console.line("◐", f"{counts['building']} building")
+        console.line("○", f"{counts['spec']} spec")
+        console.line("·", f"{counts['none']} notes with no status (principles, indexes, prose)")
+        prompts = dna.inventory()
+        console.line("🧬", f"{len(prompts)} prompts, ~{sum(p.est_tokens for p in prompts)} tokens")
+        if findings:
+            console.warn(f"{len(findings)} drift finding(s) — run `genesis dna check`")
+        else:
+            console.ok("the body map is honest")
+        for name, notes in genome.collisions().items():
+            console.warn(f"`{name}` resolves two ways: " + ", ".join(n.rel for n in notes))
     return 0
 
 
@@ -2052,10 +2211,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         from genesis.server.app import serve
 
+        from genesis.server.fleet import FLEET_STATE
+
         console.line("🌐", f"Genesis UI server on http://{args.host}:{args.port}")
         with console.nest():
             console.line("🔌", "ws /v1/events · post /v1/command · post /v1/voice/utterance")
-            console.line("😴", "idle until asked — no autonomous loop")
+            # This line used to read "idle until asked — no autonomous loop"
+            # unconditionally, which was false in the default case and is how a
+            # dead fleet reads as normal operation to anyone scanning the log.
+            console.line(
+                "😴" if args.no_daemon else "🫀",
+                "idle until asked — no autonomous loop" if args.no_daemon
+                else "the fleet and its cadences are starting behind this server",
+            )
+        if args.no_daemon:
+            FLEET_STATE.set("disabled", detail="started with --no-daemon")
         stop = None if args.no_daemon else _warm_fleet(config, console)
         if args.no_daemon:
             console.warn(
@@ -2119,6 +2289,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "biology":
         return _cmd_biology(console)
+
+    if args.command == "dna":
+        return _cmd_dna(console, args)
+
+    if args.command == "universe":
+        return _cmd_universe(config, console, getattr(args, "universe_command", None))
 
     if args.command == "memory":
         return _cmd_memory(config, console, args)

@@ -51,26 +51,28 @@ const getElk = () => (elkPromise ??= import('elkjs/lib/elk.bundled.js').then(
  * Execution is innermost — it is the band that touches money, and the note asks
  * for it to be distinguishable at a glance and given a boundary of its own.
  */
+// Families are nested arcs fanning UP from the core (screen 270° is up, y down).
+// Execution is the innermost ring — it is the band that touches money. Each ring
+// sits a fixed distance outside the last, and every agent in a family is evenly
+// spaced along that family's arc: one row, no radial stagger, nothing overlaps.
 const BAND_ORDER: Family[] = ['execution', 'journal', 'strategy', 'research', 'charting']
 
-const BAND_R: Record<Family, number> = {
-  execution: 390, journal: 620, strategy: 620, research: 640, charting: 640, core: 0,
-}
-
-/** Disjoint sectors, 4° gutters. Degrees, screen space (y down, 0° is right). */
-const BAND_SWEEP: Record<Family, [number, number]> = {
-  execution: [-46, 46],
-  journal: [42, 106],
-  strategy: [114, 178],
-  research: [186, 250],
-  charting: [258, 322],
-  core: [0, 0],
-}
-
-/** Radial stagger within a band, so 176px-wide labels in a dense arc clear each other. */
-const BAND_STAGGER = 112
+/** The execution ring; each family after it steps out by BAND_GAP. */
+const BAND_BASE = 600
+const BAND_GAP = 180
+/** Arc centre — straight up. */
+const ARC_CENTRE = 270
+/**
+ * Fixed angular gap between adjacent agents in a band. At BAND_BASE this is a
+ * ~280px chord — clear of the widest node (spinal, 210px) — and only grows on
+ * the outer rings, so one row per family never overlaps.
+ */
+const NODE_PITCH_DEG = 27
+/** Keep outer arcs from running under the MCP columns (~±950px). */
+const ARC_HALF_WIDTH = 950
 
 const rad = (deg: number) => (deg * Math.PI) / 180
+const deg = (r: number) => (r * 180) / Math.PI
 
 /**
  * Radial body map. Deterministic and synchronous — no solver, so it cannot
@@ -88,21 +90,24 @@ export function organismLayout(nodes: LayoutInput[]): Positions {
     byFamily.set(n.family, list)
   }
 
-  for (const fam of BAND_ORDER) {
+  BAND_ORDER.forEach((fam, band) => {
     const list = byFamily.get(fam) ?? []
-    if (list.length === 0) continue
-    const [a0, a1] = BAND_SWEEP[fam]
-    const r = BAND_R[fam]
-    const step = list.length === 1 ? 0 : (a1 - a0) / (list.length - 1)
+    if (list.length === 0) return
+    const r = BAND_BASE + band * BAND_GAP
+    // Even angular spacing at a fixed pitch, so density is the same in every
+    // band. Clamped so a long family's arc never runs under the MCP columns.
+    const fitHalf = deg(Math.asin(Math.min(1, ARC_HALF_WIDTH / r)))
+    const half = Math.min(fitHalf, (NODE_PITCH_DEG * (list.length - 1)) / 2)
+    const a0 = ARC_CENTRE - half
+    const step = list.length === 1 ? 0 : (half * 2) / (list.length - 1)
     list.forEach((n, i) => {
-      const angle = rad(list.length === 1 ? (a0 + a1) / 2 : a0 + step * i)
-      const rr = r + (i % 2 === 0 ? 0 : BAND_STAGGER)
+      const angle = rad(list.length === 1 ? ARC_CENTRE : a0 + step * i)
       pos[n.id] = {
-        x: Math.cos(angle) * rr - n.width / 2,
-        y: Math.sin(angle) * rr - n.height / 2,
+        x: Math.cos(angle) * r - n.width / 2,
+        y: Math.sin(angle) * r - n.height / 2,
       }
     })
-  }
+  })
 
   // Senses and hands sit outside every band, on the side their pathway implies:
   // afferent left (signal coming in), efferent right (signal going out).
@@ -113,7 +118,7 @@ export function organismLayout(nodes: LayoutInput[]): Positions {
     const row = left ? i : i - half
     const count = left ? half : mcp.length - half
     pos[n.id] = {
-      x: (left ? -1240 : 1060) - n.width / 2,
+      x: (left ? -1040 : 900) - n.width / 2,
       y: (row - (count - 1) / 2) * 58 - n.height / 2,
     }
   })
@@ -122,11 +127,33 @@ export function organismLayout(nodes: LayoutInput[]): Positions {
   mem.forEach((n, i) => {
     pos[n.id] = {
       x: (i - (mem.length - 1) / 2) * 196 - n.width / 2,
-      y: 940 - n.height / 2,
+      y: 760 - n.height / 2,
     }
   })
 
+  if (import.meta.env.DEV) warnOnOverlap(nodes, pos)
   return pos
+}
+
+/**
+ * The check behind "no overlapping, evenly spaced". Dev-only, O(n²) over ~30
+ * band nodes — if a pitch or radius change ever lets two agent boxes intersect,
+ * this says so in the console instead of the operator finding it on screen.
+ */
+function warnOnOverlap(nodes: LayoutInput[], pos: Positions) {
+  const band = nodes.filter((n) => n.group === 'agent' || n.group === 'spinal')
+  for (let i = 0; i < band.length; i++) {
+    for (let j = i + 1; j < band.length; j++) {
+      const a = band[i], b = band[j]
+      const pa = pos[a.id], pb = pos[b.id]
+      if (!pa || !pb) continue
+      const gapX = Math.abs((pa.x + a.width / 2) - (pb.x + b.width / 2)) - (a.width + b.width) / 2
+      const gapY = Math.abs((pa.y + a.height / 2) - (pb.y + b.height / 2)) - (a.height + b.height) / 2
+      if (gapX < 0 && gapY < 0) {
+        console.warn(`[organismLayout] "${a.id}" and "${b.id}" overlap by`, { gapX, gapY })
+      }
+    }
+  }
 }
 
 /**
@@ -153,8 +180,8 @@ export async function layeredLayout(
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'RIGHT',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '160',
-      'elk.spacing.nodeNode': '26',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '190',
+      'elk.spacing.nodeNode': '34',
       'elk.partitioning.activate': 'true',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',

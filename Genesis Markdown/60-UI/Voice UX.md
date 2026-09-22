@@ -1,13 +1,19 @@
 ---
 title: Voice UX
 tags: [ui, voice]
-status: building
-implemented_by: [src/genesis/voice/speech.py]
+status: built
+implemented_by: [src/genesis/voice/speech.py, src/genesis/voice/earcons.py, src/genesis/voice/policy.py, src/genesis/orchestrator/verbosity.py, tests/test_earcons.py, tests/test_speech.py, tests/test_speech_dates.py, tests/test_speech_policy.py, tests/test_verbosity.py, src/genesis/server/voice_routes.py, ui/src/components/TapToSpeak.tsx, ui/src/shell/CommandBar.tsx]
 ---
 
 # 🗣️ Voice UX
 
 How Genesis sounds, and when it speaks. Technical pipeline: [[10-Architecture/Voice Stack]].
+
+> [!note] Voice is a peer input, not the door
+> [[Operating Model]] §4 — the typed sentence and the spoken one reach the same
+> command table and the same orchestrator behind it, and **unplugging the
+> microphone must remove no capability**. Everything below is about the spoken
+> *channel*; none of it is about what the system can be asked to do.
 
 ## Persona
 
@@ -37,9 +43,31 @@ badly.
 | `ES`/`NQ` | "E-S" / "N-Q" |
 | `08:30` | "eight thirty" |
 | `2.4x` | "two point four times" |
+| `1993` (year) | "nineteen ninety-three" — never "one thousand nine hundred ninety-three" |
+| `2026` (year) | "twenty twenty-six" |
+| `2005` (year) | "two thousand five" |
+| `April 5, 1993` | "April fifth, nineteen ninety-three" |
+| `2026-09-02` | "September second, twenty twenty-six" |
+| `1995` (a count) | "one thousand nine hundred ninety-five" — **unchanged** |
 
 Tickers are spelled unless they're conventionally pronounced. Prices are read the way
 traders say them, not the way a screen reader would.
+
+> [!important] A year is not a number, and the difference is context, not digits
+> `1995` is a year in *"founded in 1995"* and a share count in *"sold 1995
+> shares"*. Nothing about the digits distinguishes them, so a bare number is
+> **left as a cardinal** unless something nearby says otherwise — a month name,
+> a date pattern, or a cue word (`in`, `since`, `founded`, `fiscal`, `Q3`, …).
+>
+> The default is deliberately the clumsy reading rather than the confident one.
+> A missing cue costs *"one thousand nine hundred ninety-three"*, which is ugly;
+> a false positive would read a fill at `2000` as *"twenty hundred"*, which is
+> wrong about money. `at`, `to` and `of` are excluded from the cue list for
+> exactly that reason.
+>
+> Found the honest way: asked aloud when NVIDIA was founded, Genesis said
+> *"April five, one thousand nine hundred ninety-three"*. Two bugs in one
+> sentence.
 
 ## Verbosity levels
 
@@ -50,6 +78,18 @@ Configurable, and switchable mid-conversation ("give me the full version").
 | `terse` | "Four ideas. Top is NVDA long." |
 | `brief` *(default)* | "Four ideas ranked. Top is NVDA long from one twenty-one, invalidation one eighteen forty, confidence point seven two. Chart's on the dashboard." |
 | `full` | Adds the thesis, the catalyst, the conflicts, and the runners-up. |
+
+**Built** — `orchestrator/verbosity.py`. The level reaches the model as a length
+instruction appended *after* the frozen persona, so a change invalidates the
+prompt-cache tail rather than the whole prefix. It is never enforced by
+truncating a reply: cutting a sentence in half mid-number is worse than one that
+ran long, and this system speaks prices aloud.
+
+Switching is deterministic — *"be terse"* is a command, not a question, and
+routing it through a model would make the cheapest request the most expensive.
+It requires an imperative framing and refuses when the sentence names a subject,
+so *"give me the full picture on NVDA"* stays a question about NVDA rather than
+being swallowed as a settings change.
 
 ## Earcons
 
@@ -70,6 +110,18 @@ each other with no words attached. You will learn them within a week and then ne
 need to look at the screen for confirmation.
 
 Pattern: [[Repo — jarvis]] `output/tune_player.py`.
+
+**Built** — `voice/earcons.py`. Synthesised rather than shipped as files: a sine
+with a raised-cosine envelope is a few lines, has no licensing question, and
+follows the player's sample rate. All seven are rendered at startup, because an
+earcon computed on demand is not an earcon.
+
+The *distinguishable blind* criterion is a constraint on the waveforms, so
+order-placed and risk-rejected are separated on four independent axes at once —
+rising vs flat, bright vs low (more than two octaves apart), three notes vs two,
+pure vs harsh. No single degradation — a bad speaker, a noisy room, hearing loss
+at one end of the range — can collapse them into each other. A test asserts all
+four.
 
 ## When it speaks unprompted
 
@@ -94,6 +146,23 @@ muted assistant is worthless.
 - Level approaches
 - Health issues that don't affect execution
 - Research findings without an actionable conclusion
+
+**Built** — `voice/policy.py`. The table above is the code, keyed by
+[[Event Schema]] event kinds, with three properties worth stating:
+
+- **An unknown event kind is silent.** A new event cannot start talking merely
+  by existing. Silence is safe here in a way it rarely is: the event is still on
+  the [[Dashboard]] and still in the [[Episodic Log]], so the cost of holding it
+  is delay, while the cost of speaking is the operator muting the system.
+- **Muting cannot silence a safety event.** Otherwise *"be quiet"* becomes a
+  safety control by accident.
+- **Work you asked for is not an unprompted event.** A backtest you requested
+  answers to you whether it took two seconds or four minutes, and is spoken
+  regardless of presence. It is not a *"routine agent completion"*.
+
+Presence is recent voice activity, including ambient speech — which is the
+strongest evidence you are in the room precisely because it was not addressed to
+Genesis.
 
 ## Confirmation dialogue
 
@@ -132,5 +201,6 @@ open position.
 
 ## Related
 
-[[10-Architecture/Voice Stack]] · [[Orchestrator]] · [[Approval Modes]] · [[Agent — Digest]] ·
+[[Operating Model]] · [[Terminal]] · [[10-Architecture/Voice Stack]] · [[Orchestrator]] · [[Approval Modes]] · [[Agent — Digest]] ·
+[[Web Access]] ·
 [[Kill Switch]] · [[Dashboard]]

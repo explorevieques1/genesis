@@ -1,8 +1,8 @@
 ---
 title: Trade Journal Schema
 tags: [schema, journal]
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/journal/schema.py, src/genesis/journal/store.py, tests/journal/test_schema.py, tests/journal/test_store.py]
 ---
 
 # Trade Journal Schema

@@ -1,8 +1,8 @@
 ---
 title: Execution Family
 tags: [moc, agent, execution, risk]
-status: spec
-implemented_by: []
+status: building
+implemented_by: [src/genesis/execution/, src/genesis/agents/execution/__init__.py, src/genesis/execution/__init__.py, src/genesis/server/execution_routes.py]
 ---
 
 # ⚡ Execution Family
@@ -83,6 +83,23 @@ Every ambiguity resolves toward *not trading*:
 - Ledger inconsistent → **halt**
 - Execution-path component degraded → force [[Approval Modes|`confirm`]]
 - Confirmation expired → re-propose, never assume
+
+## Build state (2026-09-14)
+
+Paper order routing to IBKR is built: [[Pre-Trade Risk Engine]],
+[[Approval Modes]] tokens, [[Kill Switch]], [[Agent — Broker Adapter]],
+[[Agent — Order Manager]], [[Agent — Execution Quality]], and the `TRD` trade
+panel with order lines on the chart. Verified end to end on the paper account
+(bracket placed, moved, cancelled; market fill protected at the fill price;
+stop converted to a trail; flatten; halt with a healthy and a wedged daemon;
+reconciliation after each).
+
+Not built: [[Agent — Position And PnL Accountant]] (the order manager writes the
+ledger meanwhile), [[genesis-execution-mcp]] (no agent may place orders yet),
+the 16:15 daily reconciliation, portfolio heat.
+
+Turning it on: `execution.enabled: true` in `~/.genesis/config.yaml`, the gateway
+logged in with Read-Only API off (paper logins only), restart `genesis serve`.
 
 ## Related
 

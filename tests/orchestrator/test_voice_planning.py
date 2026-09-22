@@ -199,3 +199,107 @@ def test_nothing_is_announced_while_genesis_is_speaking(bus: TaskBus) -> None:
     loop.speaker = Speaking()
     loop._announce_completions()
     assert tts.said == []
+
+
+# -- earcons, verbosity and the speech policy on the live path ----------------
+
+
+def build_full(script: dict[bytes, str], *, bus: TaskBus, reply: str = SCAN):
+    """The loop with every Phase 2 surface wired, as `build_voice_loop` does."""
+    from genesis.orchestrator.record import VoiceRecorder
+    from genesis.orchestrator.verbosity import VerbosityControl
+    from genesis.voice.earcons import EarconPlayer
+    from genesis.voice.player import NullPlayer
+    from genesis.voice.policy import Presence, SpeechPolicy
+
+    loop, turns, tts, backend, reasoner, tools = build(script, bus=bus, reply=reply)
+    recorder = VoiceRecorder(bus.log)
+    loop.earcons = EarconPlayer(NullPlayer())
+    loop.verbosity = VerbosityControl("brief")
+    loop.policy = SpeechPolicy(Presence())
+
+    def sink(turn) -> None:  # both, the way build_voice_loop fans out
+        recorder.on_turn(turn)
+        turns.append(turn)
+
+    loop._on_turn = sink
+    return loop, turns, tts, recorder
+
+
+def test_slow_work_is_acknowledged_with_a_tone_before_it_starts(bus: TaskBus) -> None:
+    """Voice Stack: anything needing agents blows the 1.5 s budget, so
+    acknowledge immediately rather than after."""
+    from genesis.voice.earcons import Earcon
+
+    audio = b"E1"
+    loop, _turns, _tts, _rec = build_full({audio: "Genesis, screen semiconductors"}, bus=bus)
+    loop._handle(audio)
+    assert Earcon.ACKNOWLEDGED in loop.earcons.played
+
+
+def test_a_failed_plan_is_marked_with_the_down_tone(bus: TaskBus) -> None:
+    from genesis.bus.task import TaskState
+    from genesis.voice.earcons import Earcon
+
+    audio = b"E2"
+    loop, _turns, _tts, _rec = build_full({audio: "Genesis, screen semiconductors"}, bus=bus)
+    loop._handle(audio)
+    task = bus.by_state(TaskState.PENDING)[0]
+    bus.fail(
+        task.id,
+        {"class": "fatal", "reason": "no scan named that", "retryable": False},
+        retryable=False,
+    )
+    loop.earcons.played.clear()
+    loop._announce_completions()
+    assert Earcon.COMPONENT_DOWN in loop.earcons.played
+
+
+def test_a_trivial_answer_makes_no_noise(bus: TaskBus) -> None:
+    """Restraint: an answer that arrives instantly needs no tone announcing it."""
+    audio = b"E3"
+    loop, _turns, _tts, _rec = build_full({audio: "Genesis, what time does the market open?"}, bus=bus)
+    loop._handle(audio)
+    assert loop.earcons.played == []
+
+
+def test_a_spoken_verbosity_change_never_reaches_a_model(bus: TaskBus) -> None:
+    from genesis.orchestrator.verbosity import Verbosity
+
+    audio = b"V1"
+    loop, turns, _tts, _rec = build_full({audio: "Genesis, give me the full version"}, bus=bus)
+    loop._handle(audio)
+    assert turns[0].path == "verbosity"
+    assert loop.verbosity.level is Verbosity.FULL
+    assert loop.reasoner.calls == 0
+
+
+def test_every_turn_reaches_the_episodic_log(bus: TaskBus) -> None:
+    audio = b"R1"
+    loop, _turns, _tts, _rec = build_full({audio: "Genesis, what time does the market open?"}, bus=bus)
+    loop._handle(audio)
+    entries = bus.log.by_kind("voice.turn")
+    assert len(entries) == 1
+    assert entries[0].payload["heard"] == "Genesis, what time does the market open?"
+
+
+def test_ambient_speech_writes_nothing_to_disk(bus: TaskBus) -> None:
+    """The privacy boundary, end to end: the room talking leaves no trace on
+    disk at all — Working Memory's "zero disk writes"."""
+    audio = b"R2"
+    loop, _turns, _tts, recorder = build_full({audio: "I think semis are extended here"}, bus=bus)
+    before = bus.log.count()
+    loop._handle(audio)
+    assert bus.log.count() == before
+    assert recorder.ambient_heard == 1
+
+
+def test_hearing_the_room_counts_as_presence(bus: TaskBus) -> None:
+    """Voice UX's "speaks if you're present" needs a presence signal, and
+    ambient chatter is the strongest one available."""
+    audio = b"R3"
+    loop, _turns, _tts, _rec = build_full({audio: "the desk was leaning short"}, bus=bus)
+    assert loop.policy.presence.present is False
+    loop._handle(audio)
+    assert loop.policy.presence.present is True
+    assert loop.policy.should_speak("idea.high_confidence") is True

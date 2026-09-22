@@ -1,0 +1,290 @@
+# Spec: Genesis Markdown/20-Agents/Charting/Charting Family.md
+#
+# THE CHARTING QUESTION CATALOGUE
+#
+# Every question a person might reasonably ask this system that ends in a
+# chart. Written first and used three ways:
+#
+#   1. As the feature list. A capability exists because a question here needs
+#      it — not because it was interesting to build. Two questions in this file
+#      are marked `unsupported` and they are the honest edge of the system.
+#   2. As the router eval (`evals/test_charting_routing.py`): does the
+#      orchestrator send each question to the right agent with the right args?
+#   3. As the answer-shape eval: does what comes back actually answer it?
+#
+# Fields:
+#   ask        what a person says
+#   agent      which agent should own it
+#   type       the task type
+#   args       the arguments that make it the right answer
+#   answers    what a correct reply must contain, in substance
+#   unsupported  set when the honest answer today is "I can't do that yet"
+
+questions:
+
+  # --- Mark up a price chart -------------------------------------------
+  - ask: "Genesis, chart NVDA"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: NVDA, timeframe: 1D }
+    answers: "a rendered daily chart, at most 8 annotations, one named decisive level"
+
+  - ask: "mark up Tesla on the hourly"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: TSLA, timeframe: 1H }
+    answers: "an hourly markup including session VWAP, which only exists intraday"
+
+  - ask: "where's support on SPY?"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: SPY, timeframe: 1D }
+    answers: "the nearest untested level below spot, in price, with why it is a level"
+
+  - ask: "what levels matter on Apple this week?"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: AAPL, timeframe: 1D }
+    answers: "prior-period high and low plus the strongest clusters, ATR-weighted for proximity"
+
+  - ask: "show me the volume profile on QQQ"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: QQQ, timeframe: 1D }
+    answers: "POC and value-area bounds as levels, and the value area drawn as a zone"
+
+  - ask: "is there an unfilled gap on AMD?"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: AMD, timeframe: 1D }
+    answers: "unfilled fair-value gaps as zones, or a clear statement that there are none"
+
+  # --- Read the structure -----------------------------------------------
+  - ask: "what pattern is NVDA making?"
+    agent: pattern-recognition
+    type: chart.pattern
+    args: { spec_id: "<from a chart.markup first>" }
+    answers: "a named pattern with its agreement field, or 'no clear pattern' — which is common and correct"
+
+  - ask: "is this a bull flag or am I seeing things?"
+    agent: pattern-recognition
+    type: chart.pattern
+    args: { spec_id: "<from a chart.markup first>" }
+    answers: "the rules engine's measurement, and an explicit conflict if vision and rules disagree"
+
+  - ask: "is SPY trending or ranging?"
+    agent: pattern-recognition
+    type: chart.pattern
+    args: { spec_id: "<from a chart.markup first>" }
+    answers: "trend plus ADX plus swing sequence — a measurement, not an impression"
+
+  - ask: "is volatility compressing on IWM?"
+    agent: pattern-recognition
+    type: chart.pattern
+    args: { spec_id: "<from a chart.markup first>" }
+    answers: "the contraction ratio and its volatility percentile rank"
+
+  # --- Timeframe alignment ----------------------------------------------
+  - ask: "does the weekly agree with this long on NVDA?"
+    agent: multi-timeframe
+    type: chart.align
+    args: { symbol: NVDA, direction: long }
+    answers: "an alignment score, a verdict, and the nearest higher-timeframe level in ATR"
+
+  - ask: "show me NVDA on multiple timeframes"
+    agent: multi-timeframe
+    type: chart.align
+    args: { symbol: NVDA, direction: none }
+    answers: "one composite image, higher timeframes small, trading timeframe large"
+
+  - ask: "am I about to buy into resistance?"
+    agent: multi-timeframe
+    type: chart.align
+    args: { symbol: NVDA, direction: long }
+    answers: "nearest_htf_level with its distance in ATR — the field this agent exists for"
+
+  # --- Live levels -------------------------------------------------------
+  - ask: "is anything at a level right now?"
+    agent: level-watcher
+    type: level.poll
+    args: {}
+    answers: "every active spec's levels price is testing, with touch and break distinguished"
+
+  - ask: "tell me if NVDA breaks the prior-day high"
+    agent: level-watcher
+    type: level.poll
+    args: {}
+    answers: "a level.broken event on a close beyond — never on a wick through"
+
+  # --- Non-price charts: the Data Viz half ------------------------------
+  - ask: "show me a bar chart of the top performing sectors this past year"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: sector_performance, days: 365 }
+    answers: "eleven sectors ranked, signed colouring, a zero baseline, values labelled"
+
+  - ask: "show me a bar chart of the top performing sectors this past year, then give me your theory as to why utilities performed best"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: sector_performance, days: 365, interpret: true }
+    answers: "the ranking as fact, then a theory explicitly labelled as an unverified hypothesis"
+
+  - ask: "show me the fed funds rate over the past 20 years"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: macro_series, series: "fed funds", years: 20 }
+    answers: "a line chart from FRED DFF, current level, peak and trough with dates"
+
+  - ask: "chart CPI since 2010"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: macro_series, series: cpi, years: 16 }
+    answers: "the CPI index series, sourced and dated"
+
+  - ask: "how does the 10-year compare to the 2-year?"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: macro_series, series: "yield curve", years: 20 }
+    answers: "the spread series T10Y2Y, not two lines on two scales"
+
+  - ask: "compare NVDA, AMD and Intel this year"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: compare, symbols: [NVDA, AMD, INTC], days: 365 }
+    answers: "three lines indexed to 100 on one axis, direct-labelled at the right"
+
+  - ask: "how correlated are my tech names?"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: correlation, symbols: [NVDA, AMD, AVGO, MSFT], days: 180 }
+    answers: "a diverging heatmap centred on zero, every cell printed, most/least correlated pair named"
+
+  - ask: "which sectors led over the last month?"
+    agent: data-viz
+    type: viz.render
+    args: { recipe: sector_performance, days: 30 }
+    answers: "the same ranking over a 30-day window, with the window named in the title"
+
+  # --- Lineage and outcome: the family's distinctive edge ----------------
+  - ask: "show me how that level held up"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: NVDA, timeframe: 1D }
+    tool: "genesis-charting.diff_spec"
+    answers: "the old spec re-rendered against current bars, with held / broke / untested per level"
+
+  - ask: "how has my read of NVDA changed?"
+    agent: chart-markup
+    type: chart.markup
+    args: { symbol: NVDA, timeframe: 1D }
+    tool: "genesis-charting.lineage"
+    answers: "the parent chain of specs, each with its date and its levels"
+
+  # --- The honest edge --------------------------------------------------
+  - ask: "which of my level types actually hold?"
+    unsupported: "Needs Agent — Insight Miner (Phase 8) and months of accumulated
+      outcomes. Every fire is already recorded against the level entity, which is
+      what makes the question answerable later — but answering it today would be
+      a statistic computed from a fortnight."
+    answers: "say so, and say what it is waiting on"
+
+  - ask: "draw a trendline where I want it"
+    unsupported: "Hand editing belongs to the Dashboard (Phase 6). A spec is
+      immutable and produced by computation; a hand-drawn line has no `why` and
+      no derivation, so it cannot be scored later — which is the whole point of
+      the object."
+    answers: "say so, and offer the computed trendline instead"
+
+# ---------------------------------------------------------------------
+# JOURNAL — questions the Journal Family answers.
+#
+# Kept in the same file deliberately. The charting family produces the level
+# outcomes the journal accumulates, and several of these questions are only
+# answerable because of that loop — splitting them into two catalogues would
+# hide the dependency that makes them work.
+# ---------------------------------------------------------------------
+
+journal_questions:
+
+  - ask: "how did I do this week?"
+    agent: performance-analyst
+    type: perf.review
+    args: { days: 7 }
+    answers: "net R, expectancy, best and worst slice — each with its n, and a
+      losing week said so in the first sentence"
+
+  - ask: "which setups actually make money?"
+    agent: performance-analyst
+    type: perf.review
+    args: { days: 90 }
+    answers: "expectancy by setup, every slice labelled indicative below 20 trades"
+
+  - ask: "do my bigger positions do worse?"
+    agent: performance-analyst
+    type: perf.review
+    args: { days: 90 }
+    answers: "trades above 1.5x average size against those below, both samples stated"
+
+  - ask: "is the system's confidence scoring any good?"
+    agent: performance-analyst
+    type: perf.review
+    args: { days: 180 }
+    answers: "R by confidence bucket, and whether it is monotonic — the analysis
+      that grades the grader"
+
+  - ask: "what am I doing wrong?"
+    agent: insight-miner
+    type: insight.mine
+    args: { days: 180 }
+    answers: "one behavioural pattern, quantified, with its baseline — or the
+      closest hypothesis and how far it is from qualifying"
+
+  - ask: "do I move my stops?"
+    agent: insight-miner
+    type: insight.mine
+    args: { days: 180 }
+    answers: "how often the stop moved *against* the position, computed from the
+      ledger and never self-reported"
+
+  - ask: "which of my level types actually hold?"
+    agent: insight-miner
+    type: insight.mine
+    args: { days: 365 }
+    answers: "hold rate by derivation — anchored-vwap versus trendline. Answerable
+      today, because the charting family records every scored level"
+    note: "This was `unsupported` in the charting section above. The Journal
+      Family's observation store is what changed that."
+
+  - ask: "is everything running?"
+    agent: watchdog
+    type: health.check
+    args: {}
+    answers: "one line per subsystem, with stale-but-responsive reported as
+      degraded rather than healthy"
+
+  - ask: "brief me"
+    agent: digest
+    type: digest.brief
+    args: { kind: morning }
+    answers: "regime, catalysts, ideas, your book, and exactly one warning"
+
+  - ask: "how did today go?"
+    agent: digest
+    type: digest.brief
+    args: { kind: evening }
+    answers: "the day's trades with losses in the first sentence, and what the
+      system will do overnight"
+
+  # --- The honest edge, journal side ---------------------------------
+  - ask: "is this strategy still working?"
+    unsupported: "Needs [[Agent — Backtest Runner]] (Phase 5). Without a backtest
+      distribution there is nothing to compare live results against, and
+      Agent — Backtest Vs Live Drift reports which strategies it *cannot*
+      measure rather than inventing a baseline."
+    answers: "name the strategies with no expectation on file, and say why"
+
+  - ask: "journal this trade"
+    unsupported: "Needs Phase 7. Agent — Trade Journal is complete and has no
+      fills to record — it is wired to `fill.entry` / `fill.exit` events that
+      nothing emits yet."
+    answers: "say so, and say what it is waiting on"

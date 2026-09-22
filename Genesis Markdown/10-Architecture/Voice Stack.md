@@ -1,8 +1,8 @@
 ---
 title: Voice Stack
 tags: [architecture, voice]
-status: building
-implemented_by: [src/genesis/voice/capture.py, src/genesis/voice/vad.py, src/genesis/voice/wake.py, src/genesis/voice/stt.py, src/genesis/voice/tts.py, src/genesis/voice/player.py, src/genesis/voice/speaker.py, src/genesis/voice/echo.py, src/genesis/voice/reflex.py]
+status: built
+implemented_by: [src/genesis/voice/capture.py, src/genesis/voice/vad.py, src/genesis/voice/wake.py, src/genesis/voice/stt.py, src/genesis/voice/tts.py, src/genesis/voice/player.py, src/genesis/voice/speaker.py, src/genesis/voice/echo.py, src/genesis/voice/reflex.py, src/genesis/voice/earcons.py, src/genesis/voice/policy.py, src/genesis/orchestrator/build.py, tests/orchestrator/test_build.py, evals/corpora/intent.py, evals/test_intent_classification.py, src/genesis/server/voice_routes.py, ui/src/components/TapToSpeak.tsx, ui/src/lib/speak.ts]
 ---
 
 # Voice Stack
@@ -17,8 +17,8 @@ once you've addressed it.
                                                       │
                     ┌─────────────────────────────────┘
                     ▼
-             ElevenLabs Scribe (streaming STT)
-                    │  partials
+             ElevenLabs Scribe (batch STT — see below)
+                    │  transcript
                     ▼
              intent classification  (nano tier)
                     │  directed?
@@ -38,7 +38,7 @@ once you've addressed it.
 | Capture | local mic, continuous ring buffer | keeps ~30 s of rolling audio so the wake word can be *anywhere* in a sentence |
 | VAD | local (webrtcvad / silero) | cheap gate before anything expensive |
 | Wake | on-device keyword ("Genesis") | **no audio leaves until this fires** |
-| STT | ElevenLabs Scribe, streaming | partial transcripts start the planner early |
+| STT | ElevenLabs Scribe, **batch** | one request per utterance — see *What is not streaming* |
 | Intent | nano-tier classifier | see [[Orchestrator]] |
 | TTS | ElevenLabs streaming, custom voice id | interruptible mid-sentence |
 | Earcons | short local tones | see [[Voice UX]] |
@@ -47,6 +47,21 @@ once you've addressed it.
 Pattern reference: [[Repo — jarvis]] `src/jarvis/listening/` — `wake_detection.py`,
 `echo_detection.py`, `transcript_buffer.py`, `state_manager.py`, `intent_judge.py`;
 and `src/jarvis/output/tts.py`, `tune_player.py`.
+
+> [!warning] What is not streaming — recorded 2026-08-31
+> The diagram above once said *"partials start the planner early"*. It never
+> did. `ScribeSTT` sends one request per utterance and waits, which is why the
+> measured line reads *"~670 ms (Scribe, batch)"*. The note now says batch in
+> both places, because a pipeline diagram describing a stage the system does not
+> have is [[Biological Design|proprioceptive drift]] — the system reasons
+> confidently about itself and is wrong.
+>
+> The budget line moved with it: 300 ms priced a *partial*, and there is no
+> partial. 700 ms is what a whole-utterance round trip actually costs, and the
+> measurement sits just inside it. Streaming would buy roughly 300 ms back, and
+> the budget line goes back to 300 ms on the day it lands — but it
+> is a change to the STT client, not to the pipeline shape: the wake gate still
+> owns the audio and still releases it only after a local detector fires.
 
 ## Wake anywhere
 
@@ -89,7 +104,7 @@ Target: wake → first spoken syllable **< 1.5 s** for a trivial request.
 | Stage | Budget | Measured (2026-08-30, this machine) |
 |---|---|---|
 | wake detect | 150 ms | **~1200 ms** ⚠️ — see below |
-| STT (streaming, to usable partial) | 300 ms | ~670 ms (Scribe, batch) |
+| STT (batch, whole utterance) | 700 ms | ~670 ms (Scribe, batch) |
 | intent (nano) | 100 ms | **0.1–3 ms** — deterministic, no model |
 | plan / trivial answer | 400 ms | <1 ms (calendar, no model) |
 | TTS first chunk | 400 ms | ~210 ms warm / ~740 ms cold |
@@ -115,6 +130,11 @@ life and `warm()` opens it at startup. Cold: 741 ms. Warm: 206 ms.
 
 Anything needing agents exceeds this — so **acknowledge immediately** with an earcon
 plus a one-liner ("Working on it — screening semis") and speak the result when it lands.
+
+**Built.** The [[Voice UX|acknowledged earcon]] fires when a plan is dispatched,
+*before* the await window, and the one-liner comes from the plan itself
+("Running it now — 3 steps"). The result is spoken when it lands, from the voice
+loop's idle path rather than a second thread, so nothing races the speaker.
 
 ## Privacy note
 

@@ -68,6 +68,25 @@ class Refused(GenesisError):
     """A request the order manager declines, with the reason for the trader."""
 
 
+def _origin(raw: Any) -> dict[str, Any]:
+    """A ticket's `origin`, in either spelling, as the proposal's two fields.
+
+    Order And Fill Schema writes it as ``origin: {kind: idea, ref: idea_01J8XS}``.
+    Most callers still send the bare string (`"human"`, `"plan"`), and both must
+    work -- a ticket that loses its ref silently is exactly the drift this fixes,
+    so the string form keeps working and the object form is finally read.
+
+    The ref is a provenance label. It reaches the audit line and the ledger; it
+    is never consulted by a risk check, because an order's parentage has no
+    bearing on whether it is safe to place.
+    """
+    if isinstance(raw, dict):
+        kind = str(raw.get("kind") or "human")
+        ref = raw.get("ref")
+        return {"origin": kind, "origin_ref": str(ref) if ref else None}
+    return {"origin": str(raw or "human"), "origin_ref": None}
+
+
 def _s(value: Any) -> str | None:
     return None if value is None else str(value)
 
@@ -330,7 +349,7 @@ class OrderManager:
             symbol_id=info.symbol_id, root=info.root, local_symbol=info.local_symbol, con_id=info.con_id,
             multiplier=info.multiplier, min_tick=info.min_tick, side=side,  # type: ignore[arg-type]
             qty=qty, order_type=str(t.get("order_type", "market")),  # type: ignore[arg-type]
-            intent=intent, origin=str(t.get("origin", "human")),
+            intent=intent, **_origin(t.get("origin")),
             limit_price=_money(t.get("limit_price"), "limit price"),
             stop_kind="none" if intent == "reduce" else str(stop.get("kind", "none")),  # type: ignore[arg-type]
             stop_offset=_money(stop.get("offset"), "stop offset"),
@@ -399,7 +418,7 @@ class OrderManager:
         margin = self.broker.what_if_margin(info, p.side, p.qty) if p.intent == "open" else None
         return RiskContext(
             mode="halt" if halted else self.mode, halted=halted,
-            allowlist=tuple(risk.symbol_allowlist), max_contracts=risk.max_contracts_per_symbol,
+            allowlist=self._allowlist(), max_contracts=risk.max_contracts_per_symbol,
             max_daily_loss_usd=risk.max_daily_loss_usd, max_price_deviation_pct=risk.max_price_deviation_pct,
             in_session=in_session(info.trading_hours, info.time_zone, self.clock()),
             position_qty=position, working_entry_qty=working, daily_pnl=self._daily_pnl(),
@@ -483,10 +502,26 @@ class OrderManager:
             return Decimal(0)
         return now_liq - Decimal(row["equity"])
 
+    def _allowlist(self) -> tuple[str, ...]:
+        """The resolved universe: futures roots, plus equities when configured.
+
+        Read from a file written in advance, never fetched here -- the gate is
+        a reflex and an HTTP call inside one is a dependency with a timeout.
+        A missing or unreadable snapshot degrades to the futures roots and the
+        core ETFs, so the failure direction is *fewer* symbols allowed.
+        """
+        from genesis.marketdata.universe import load as load_universe
+
+        try:
+            return load_universe(self.config).symbols
+        except Exception:  # noqa: BLE001 - the configured roots always work
+            return tuple(self.config.risk.symbol_allowlist)
+
     def _propose(self, p: Proposal, info: ContractInfo) -> dict[str, Any]:
         decision = evaluate(p, self._context(p, info), now=self.clock())
         self.emit("order.proposed", {"proposal_id": p.id, "symbol": p.local_symbol, "side": p.side,
-                                     "qty": str(p.qty), "limit_price": _s(p.limit_price), "proposed_by": p.origin})
+                                     "qty": str(p.qty), "limit_price": _s(p.limit_price),
+                                     "proposed_by": p.origin, "origin_ref": p.origin_ref})
         self._audit("proposal", {"proposal": _jsonable(p), "decision": decision.to_dict()})
         body: dict[str, Any] = {"proposal": _jsonable(p), "decision": decision.to_dict()}
         if not decision.approved:

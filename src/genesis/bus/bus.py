@@ -127,6 +127,11 @@ class TaskBus:
         self.research_depth_limit = research_depth_limit
         self.retry_backoff_base_sec = retry_backoff_base_sec
         self._lock = threading.RLock()
+        #: Set on every successful submit. An in-process daemon waits on this
+        #: instead of sleeping out its tick, so a typed request starts in
+        #: microseconds rather than up to a second later. Another process
+        #: submitting to the same file cannot set it; that daemon still ticks.
+        self.wakeup = threading.Event()
 
     @property
     def log(self) -> EpisodicLog:
@@ -210,6 +215,7 @@ class TaskBus:
             # The partial unique index rejected it: an identical key is live.
             return None
 
+        self.wakeup.set()
         return self.get(task_id)
 
     # ------------------------------------------------------------------
@@ -294,6 +300,22 @@ class TaskBus:
                 )
                 return self._get_in(tx, task.id)
         return None
+
+    def renew(self, task_id: str, ttl_sec: float | None = None) -> bool:
+        """Extend a live claim. ``False`` once the task is no longer held.
+
+        The TTL exists to recover a holder that died silently. A holder that is
+        alive and still working says so here -- without it, a 45-second research
+        pass is requeued mid-run by whichever worker calls :meth:`claim` next.
+        """
+        ttl = ttl_sec if ttl_sec is not None else self.claim_ttl_sec
+        with self._lock, transaction(self._conn) as tx:
+            cur = tx.execute(
+                "UPDATE tasks SET claimed_until = ? "
+                "WHERE id = ? AND state IN ('claimed', 'running')",
+                (time.time() + ttl, task_id),
+            )
+            return cur.rowcount == 1
 
     def start(self, task_id: str) -> Task | None:
         """Move a claimed task to ``running``."""

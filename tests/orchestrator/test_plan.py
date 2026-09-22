@@ -17,6 +17,7 @@ from genesis.orchestrator.plan import (
     PlanTask,
     parse_plan,
     topological_order,
+    prune_unrunnable,
     validate_plan,
 )
 from genesis.orchestrator.registry import Capability, CapabilityRegistry
@@ -255,3 +256,69 @@ def test_malformed_task_ids_are_rejected(bad: str) -> None:
 def test_malformed_task_types_are_rejected(bad: str) -> None:
     with pytest.raises(PlanError):
         parse_plan({"tasks": [{"id": "t1", "type": bad, "agent": "screener"}]})
+
+
+# -- pruning: the runnable half runs ------------------------------------------
+#
+# "Research market cycles and add it to my library" is one instruction the
+# planner reads as two. The second half names nothing that exists, and the whole
+# plan used to die for it -- no research ran and no note was saved.
+
+
+def test_an_unknown_agent_is_dropped_and_the_rest_survives(registry) -> None:
+    plan = make([
+        {"id": "t1", "type": "screen.sector", "agent": "screener"},
+        {"id": "t2", "type": "library.add", "agent": "librarian"},
+    ], speak_after="t2")
+
+    pruned, dropped = prune_unrunnable(plan, registry)
+    validated = validate_plan(pruned, registry)
+
+    assert validated.ids == ("t1",)
+    assert validated.speak_after == "t1"  # the dropped sink no longer names it
+    assert any("librarian" in d for d in dropped)
+
+
+def test_a_wrong_task_type_is_dropped(registry) -> None:
+    plan = make([
+        {"id": "t1", "type": "screen.sector", "agent": "screener"},
+        {"id": "t2", "type": "chart.markup", "agent": "screener"},
+    ])
+    pruned, dropped = prune_unrunnable(plan, registry)
+    assert pruned.ids == ("t1",)
+    assert any("chart.markup" in d for d in dropped)
+
+
+def test_a_dependent_of_a_dropped_task_goes_with_it(registry) -> None:
+    plan = make([
+        {"id": "t1", "type": "library.add", "agent": "librarian"},
+        {"id": "t2", "type": "idea.synthesize", "agent": "idea-synthesizer",
+         "depends_on": ["t1"]},
+        {"id": "t3", "type": "screen.sector", "agent": "screener"},
+    ])
+    pruned, dropped = prune_unrunnable(plan, registry)
+    assert pruned.ids == ("t3",)
+    assert len(dropped) == 2
+
+
+def test_nothing_runnable_still_rejects(registry) -> None:
+    plan = make([{"id": "t1", "type": "library.add", "agent": "librarian"}])
+    pruned, _ = prune_unrunnable(plan, registry)
+    with pytest.raises(PlanError):
+        validate_plan(pruned, registry)
+
+
+def test_an_execution_task_is_never_quietly_pruned() -> None:
+    """Dropping it would silence the loudest signal there is."""
+    r = CapabilityRegistry()
+    # The registry refuses to hold an execution agent, so reach past it -- this
+    # is the "somehow one got in" case validate_plan's second check exists for.
+    r._by_agent["order-manager"] = Capability(  # type: ignore[attr-defined]
+        agent="order-manager", family="execution",
+        summary="Places orders.", task_types=("order.place",),
+    )
+    plan = make([{"id": "t1", "type": "order.place", "agent": "order-manager"}])
+    pruned, dropped = prune_unrunnable(plan, r)
+    assert dropped == () and pruned.ids == ("t1",)
+    with pytest.raises(PlanError, match="execution"):
+        validate_plan(pruned, r)

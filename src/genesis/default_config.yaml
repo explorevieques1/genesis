@@ -13,9 +13,17 @@
 
 identity:
   wake_word: genesis
-  voice_id: zmcVlqmyk3Jpn5AVYcAL   # ElevenLabs voice id. Behaviour, not a secret:
-                                  # the key lives in ELEVENLABS_API_KEY, this does not.
-                                  # Unused until the Phase 7 TTS client exists.
+  voice_id: EXAVITQu4vr4xnSDxMaL   # ElevenLabs "Sarah" — a PREMADE voice.
+                                  # Behaviour, not a secret: the key lives in
+                                  # ELEVENLABS_API_KEY, this does not.
+                                  #
+                                  # Premade on purpose. Library, professional and
+                                  # cloned voices return 402 on a free plan
+                                  # ("Free users cannot use library voices via the
+                                  # API"), so shipping one as the default means the
+                                  # first thing a new install does is fail to speak.
+                                  # Swap in any voice you like once the plan allows
+                                  # it — `genesis voice --say "test"` verifies.
   persona: butler          # calm, concise, precise
   verbosity: brief         # terse | brief | full
 
@@ -33,23 +41,103 @@ risk:                      # the signed envelope — see 50-Risk/Risk Envelope.m
   max_portfolio_heat_pct: 6.0
   max_daily_loss_pct: 2.0
   max_correlated_exposure_pct: 10.0
-  symbol_allowlist: [NVDA, AMD, AVGO, SPY, QQQ]
+  # Open Questions §1 (2026-09-04): IBKR, CME equity-index futures. Roots, not
+  # contracts -- the contract month comes from the chart's symbol id.
+  symbol_allowlist: [ES, NQ, MES, MNQ, RTY, M2K, YM, MYM]
+  # Adds the S&P 500 and the core ETFs to the roots above, from the snapshot
+  # `genesis universe refresh` writes. The gate still does one set membership
+  # test — resolving the index is done in advance, on purpose, because a reflex
+  # that makes an HTTP call is not a reflex.
+  equity_universe: true
+  # Equities only. Futures use the contract's own trading hours as IBKR
+  # reports them, which know about holidays and the daily halt; this does not.
   session_window:
     start: "09:45"
     end: "15:45"
     tz: America/New_York
   prop_firm: null          # Open Questions §2 — none for v1
+  # Futures limits (2026-09-13). Contracts and dollars, because a percentage of
+  # equity against one NQ contract's notional is not a limit anyone can reason about.
+  max_contracts_per_symbol: 2
+  max_daily_loss_usd: 2000
+  max_price_deviation_pct: 2.0
 
 brokers:
   primary:
-    kind: alpaca           # Open Questions §1 — Alpaca paper, US equities, v1
-    mode: paper            # paper | live
-    # keys come from env: ALPACA_API_KEY / ALPACA_SECRET_KEY
+    kind: ibkr             # Open Questions §1 (2026-09-04) — IB Gateway, CME futures
+    mode: paper            # paper | live. Live also needs Paper To Live Promotion.
+    # no keys come from env here: IBKR authenticates at the gateway container
+
+# The order path — 20-Agents/Execution/Execution Family.md. Off until turned on:
+# it needs the gateway with Read-Only API off (paper logins only) and the
+# ibkr market data adapter enabled.
+execution:
+  enabled: false
+  client_id: 30            # fixed: only the placing client may cancel its orders
+  killswitch_client_id: 31
+  killswitch_port: 8766
+  state_dir: ~/.genesis/execution
+  protective_grace_sec: 5
 
 data:
   primary_feed: alpaca
   realtime: false          # see Open Questions §6
   universe: watchlist      # watchlist | sp500 | custom
+
+# The market data plane — 10-Architecture/Market Data Plane.md
+#
+# Adding IBKR when its adapter lands (Track C) is an edit HERE, not a code
+# change. That is what building the plane before the broker bought.
+marketdata:
+  store_path: ~/.genesis/market/market.duckdb
+  budget_path: ~/.genesis/market/budget.db
+  adapters:
+    # Open Questions §6 — HISTORICAL ONLY, on free credits. IBKR cannot serve
+    # backtests: it drops expired futures more than ~2y past expiry and paces
+    # at 60 requests / 10 min. This split is why the plane is adapter-shaped.
+    databento: { tier: 3, historical_only: true }
+    # Free, keyless, equities and indices. Refuses futures on purpose — its
+    # "ES=F" is a continuous series with an undocumented roll, which is a
+    # different instrument. See Open Questions §13.
+    yfinance:  { tier: 3 }
+    # Deterministic replay, for tests and offline work.
+    csv:       { tier: 3, enabled: false, root: ~/.genesis/market/replay }
+    # The broker feed. Open Questions §1.
+    #
+    # Disabled by default because it needs IB Gateway running and logged in
+    # (deploy/ib-gateway/). Enabling it is one flag; `genesis ibkr check`
+    # reports honestly whether the gateway is actually there.
+    #
+    # tier 3, NOT 1 — and this is the important line in this file. Tier 1 is
+    # what Pre-Trade Risk Engine reads in Phase 7 and nothing else. Promotion
+    # requires `genesis ibkr reconcile` against Databento, the tolerance written
+    # into Market Data Sources.md, and a test. "It connected" is not evidence of
+    # execution truth; assuming otherwise is the drift Biological Design warns
+    # about, and it is the kind that loses money quietly.
+    #
+    # market_data_type: delayed needs no subscription and exercises every line
+    # of the adapter. Change to `realtime` when the CME bundle clears.
+    ibkr:      { tier: 3, enabled: false, host: 127.0.0.1, port: 4002,
+                 client_id: 17, market_data_type: delayed }
+  chains:
+    # Market Data Sources' per-consumer fallback chains, resolved in one place
+    # instead of inside each agent.
+    # IBKR first once enabled: it is the most trusted source that can answer,
+    # and the chain is ordered by trust rather than by convenience. It is
+    # skipped with a stated reason when the gateway is down, so a chain with a
+    # dead IBKR degrades to Databento rather than failing.
+    default:        [ibkr, databento, yfinance]
+    chart_markup:   [ibkr, databento, yfinance]
+    level_watcher:  [ibkr, databento, yfinance]
+    # "stored bars only" — backtests never touch a vendor, which is also
+    # correct given IBKR's two-year expired-contract limit.
+    backtests:      []
+  # Series `genesis serve` keeps streaming from IBKR into the store while it
+  # runs, and backfills from the last stored bar on every start. Needs the ibkr
+  # adapter enabled. An explicit contract month, never "front month" (Open
+  # Questions §13) -- rolling is an edit here. Example:
+  #   - { symbol_id: "FUT:CME:NQ:2026-12", timeframe: 1m }
+  live: []
 
 llm:
   # Fixed by LLM Model Tiers.md + Open Questions Section 4: no GPU on the build

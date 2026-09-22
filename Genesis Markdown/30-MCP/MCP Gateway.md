@@ -1,8 +1,8 @@
 ---
 title: MCP Gateway
 tags: [mcp, architecture, core]
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/mcp/__init__.py, src/genesis/mcp/allowlist.py, src/genesis/mcp/build.py, src/genesis/mcp/cache.py, src/genesis/mcp/discovery.py, src/genesis/mcp/errors.py, src/genesis/mcp/fence.py, src/genesis/mcp/gateway.py, src/genesis/mcp/limits.py, src/genesis/mcp/registry.py, src/genesis/mcp/router.py, src/genesis/mcp/runtime.py, src/genesis/mcp/spec.py, src/genesis/mcp/transports.py, src/genesis/orchestrator/toolbridge.py, tests/helpers_mcp.py, tests/mcp/test_allowlist.py, tests/mcp/test_cache.py, tests/mcp/test_fence.py, tests/mcp/test_gateway.py, tests/mcp/test_gateway_build.py, tests/mcp/test_gateway_path.py, tests/mcp/test_limits.py, tests/mcp/test_registry.py, tests/mcp/test_router.py, tests/mcp/test_runtime.py, tests/mcp/test_sdk_not_shadowed.py, tests/mcp/test_sdk_shapes.py, tests/orchestrator/test_toolbridge.py, evals/corpora/tool_selection.py, evals/test_tool_selection.py, src/genesis/research/web.py, src/genesis/server/tool_routes.py, ui/src/workspace/panels/system.tsx, ui/src/workspace/panels/tool.tsx, ui/src/graph/nodes/SystemNode.tsx]
 ---
 
 # 🔌 MCP Gateway
@@ -41,7 +41,7 @@ makes "unlimited MCP servers" a real capability rather than a slogan.
 - Optional idle timeout for stateless servers
 - Health probes feeding [[Agent — Watchdog]]
 
-(Pattern: [[Repo — jarvis]] `mcp_runtime.spec.md`.)
+(Pattern: [[Repo — genesis]] `mcp_runtime.spec.md`.)
 
 ### 4. Fencing and allow-lists
 The security boundary. See below.
@@ -85,7 +85,7 @@ Rules enforced at the gateway:
 5. SSRF guard on any fetch: no internal addresses, no file schemes, no redirects to
    private ranges.
 
-Pattern: [[Repo — jarvis]] `web_search.spec.md` — untrusted web content fenced as
+Pattern: [[Repo — genesis]] `web_search.spec.md` — untrusted web content fenced as
 data, links-only envelope, SSRF guard.
 
 ## Call path

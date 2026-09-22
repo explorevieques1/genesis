@@ -1,0 +1,33 @@
+# Development config profile -- free model tiers, no Anthropic spend.
+#
+#   cp config-dev.example.yaml ~/.genesis/config-dev.yaml
+#   GENESIS_CONFIG=~/.genesis/config-dev.yaml genesis config check
+#
+# Merged over the packaged defaults, so only the keys below change; everything
+# else (risk limits, approval mode, data sources) is the shipped default.
+#
+# Why a separate file rather than editing ~/.genesis/config.yaml: the providers
+# below are development-only. Google's free tier trains on the prompts it
+# receives, which is fine for "Reply: ok" and fake symbols and disqualifying
+# for a live thesis or position. `_tier_backend` refuses to build a dev-only
+# provider when the broker is live, but the profile split is what makes that
+# refusal rare rather than routine.
+
+llm:
+  # Unchanged: intent classification is deterministic code, not a model.
+  nano:   { backend: none,   model: "" }
+
+  # Local, free, offline, private. qwen2.5:3b is ~2 GB resident -- adequate for
+  # tool routing and summarisation, and slow enough that it must stay off the
+  # voice path. Swap to `gemini` below if the box is short on RAM.
+  small:  { backend: ollama, model: qwen2.5:3b }
+
+  # Free tier: ~15 requests/minute, 1500/day, no card. Flash and Flash-Lite
+  # only -- Pro left the free tier in April 2026.
+  large:  { backend: gemini, model: gemini-flash-latest }
+  vision: { backend: gemini, model: gemini-flash-latest }
+
+  # Unchanged: local ONNX, no provider, nothing to save.
+  embedding: { backend: onnx-local, model: bge-small-en-v1.5 }
+
+  daily_token_budget: 2000000

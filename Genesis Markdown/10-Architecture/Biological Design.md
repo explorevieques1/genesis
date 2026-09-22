@@ -2,7 +2,7 @@
 title: Biological Design
 tags: [architecture, moc, philosophy]
 status: building
-implemented_by: [src/genesis/voice/reflex.py, ui/src/components/PhaseMark.tsx, tests/test_reflex.py, ui/src/workspace/panels/system.tsx]
+implemented_by: [src/genesis/voice/reflex.py, ui/src/components/PhaseMark.tsx, tests/test_reflex.py, ui/src/workspace/panels/system.tsx, src/genesis/biology.py, ui/src/views/Biology.tsx]
 ---
 
 # 🧬 Biological Design
@@ -28,26 +28,76 @@ load-bearing rather than decorative.
 
 ## The map
 
-| Biology | Genesis | Where |
-|---|---|---|
-| Brain | The LLM — *only* for genuinely ambiguous judgement | [[LLM Model Tiers]] |
-| Working memory | Context window, conversation buffer, ambient buffer | [[Working Memory]] |
-| Long-term memory | Episodic log, graph, vectors, ledger | [[Memory Fabric]] |
-| **Muscle memory** | Hardcoded logic, rules, guards — `tier: none` | [[Pre-Trade Risk Engine]] · [[Safety Invariants]] |
-| Hands | Tools and function calls, behind the strictest guards | [[MCP Gateway]] · [[genesis-execution-mcp]] |
-| Senses | Feeds, retrievers, API and file reads | [[Market Data Sources]] · [[genesis-tradingview-mcp]] |
-| **Nervous system** | Message bus, lanes, event loop | [[Task Bus]] |
-| **Heartbeat** | The daemon loop and scheduler | [[Daemon And Cadence]] |
-| Endocrine system | Config, budgets, mode flags — slow global state | [[Config And Secrets]] · [[Approval Modes]] · [[Risk Envelope]] |
-| **Pain** | Typed errors, alerts, validation failures | [[Error Handling And Degradation]] |
-| Immune system | Guardrails, fencing, sanitisation, allow-lists | [[MCP Gateway]] · [[Agent Contract]] |
-| Homeostasis | Health checks, circuit breakers, kill switch | [[Kill Switch]] · [[Agent — Watchdog]] |
-| **Proprioception** | Observability, tracing, reconciliation, self-state | [[Observability]] · [[Trade Ledger]] |
-| Metabolism | Token and compute cost, rate limits, capital at risk | [[LLM Model Tiers]] · [[Risk Envelope]] |
-| DNA | System prompts **and** this vault | [[Conventions]] · [[Vault Map]] |
-| Learning | Evals, consolidation, prompt and memory updates | `evals/` · [[Memory Consolidation]] · [[Agent — Insight Miner]] |
+| Biology | Loop | Genesis | Where |
+|---|---|---|---|
+| Brain | judgement | The LLM — *only* for genuinely ambiguous judgement | [[LLM Model Tiers]] |
+| Prefrontal cortex | judgement | The orchestrator — plans a request, routes it to agents, assembles the briefing | [[Orchestrator]] · [[Orchestrator Tools]] |
+| Cortex | judgement | The ~30 agents in five families — the specialist staff | [[Agent Index]] |
+| Working memory | memory | Context window, conversation buffer, ambient buffer | [[Working Memory]] |
+| Long-term memory | memory | Episodic log, graph, vectors, ledger | [[Memory Fabric]] |
+| **Muscle memory** | reflex | Hardcoded logic, rules, guards — `tier: none` | [[Pre-Trade Risk Engine]] · [[Safety Invariants]] |
+| Hands | action | Tools and function calls, behind the strictest guards | [[MCP Gateway]] · [[genesis-execution-mcp]] · [[Agent — Order Manager]] · [[Agent — Broker Adapter]] |
+| Voice | action | Speech out — TTS, earcons, what is worth saying aloud | [[Voice UX]] |
+| Face | action | The terminal — workspaces, command line, the panels it shows its work in | [[Terminal]] · [[Workspaces]] |
+| Senses | perception | Feeds, retrievers, API and file reads | [[Market Data Sources]] · [[Market Data Plane]] · [[genesis-tradingview-mcp]] |
+| Hearing | perception | Microphone, voice activity, on-device wake word, speech-to-text | [[Voice Stack]] |
+| Visual cortex | perception | Bars into structure — levels, patterns, zones, marked up | [[Charting Engine]] · [[Markup Spec]] |
+| **Nervous system** | rhythm | Message bus, lanes, event loop | [[Task Bus]] |
+| **Heartbeat** | rhythm | The daemon loop and scheduler | [[Daemon And Cadence]] |
+| Habits | rhythm | Workflows the trader composed, run on a cadence | [[Automation]] |
+| Endocrine system | homeostasis | Config, budgets, mode flags — slow global state | [[Config And Secrets]] · [[Approval Modes]] · [[Risk Envelope]] |
+| **Pain** | reflex | Typed errors, alerts, validation failures | [[Error Handling And Degradation]] |
+| Immune system | reflex | Guardrails, fencing, sanitisation, allow-lists | [[MCP Gateway]] · [[Agent Contract]] |
+| Homeostasis | homeostasis | Health checks, circuit breakers, kill switch | [[Kill Switch]] · [[Agent — Watchdog]] |
+| **Proprioception** | perception | Observability, tracing, reconciliation, self-state | [[Observability]] · [[Trade Ledger]] |
+| Metabolism | homeostasis | Token and compute cost, rate limits, capital at risk | [[LLM Model Tiers]] · [[Risk Envelope]] |
+| DNA | memory | System prompts **and** this vault | [[Conventions]] · [[Vault Map]] |
+| Learning | memory | Evals, consolidation, prompt and memory updates | `evals/` · [[Memory Consolidation]] · [[Agent — Insight Miner]] |
+| Dreaming | memory | Backtests — rehearsing a strategy on past markets, offline | [[Agent — Backtest Runner]] |
 
 Bold rows are the ones already built in [[Build Order|Phase 1]].
+
+**Loop** places each organ in the loop the callout above names: perception,
+memory, rhythm, reflex, action and homeostasis, plus judgement for the brain,
+the orchestrator and the agents. The `BIO` module draws the organism as a tree in that order.
+
+## Organ status
+
+What each organ can do today, in a line. The `BIO` module shows these beside
+the build marks, so **update the line in the same commit as the code**, like
+any other status.
+
+An organ's mark rolls up from its notes. A note is `built` when its code is
+wired in and the acceptance criteria a test can check are tested. Criteria that
+only a long run can prove (a p95, a seven-day soak, an eval-set score) are named
+here as *unproven* and do not hold the note at `building`. A note that names a
+piece it lacks stays `building`.
+
+- **Brain** — Built. Hosted tiers plus a local nano tier, picked per agent. Unproven: the ≥90% small-tier share.
+- **Prefrontal cortex** — Plans, routes and briefs with a built tool surface. Building: it opens panels for notes, screens and canvases only, not any module.
+- **Cortex** — 15 of 32 agents built: all of Charting and Journal, half of Research. Execution is in progress; Strategy is mostly spec.
+- **Working memory** — Built. Conversation buffer and ambient context carried across turns.
+- **Long-term memory** — Built. Episodic log, graph, vectors and ledger; `genesis memory` reads them. Unproven: recall p95 and the long-run never-compress test.
+- **Muscle memory** — The gate runs on every order and fails closed, portfolio heat included. Building: position %, correlation, liquidity and event-window checks report `not_built`.
+- **Hands** — Orders round-trip on IBKR paper through propose → approve → place. Building: the execution MCP is spec, and there is no live path.
+- **Voice** — Built. Genesis speaks: TTS, earcons, and a policy for what is worth saying aloud.
+- **Face** — Eight Dockview pages, a command line and ⌘K on one path with voice. Building: named symbol-link groups and their chip.
+- **Senses** — Built. IBKR, Databento, yfinance and CSV behind one store; the TradingView desktop app driven and read over CDP — quote, bars, watchlist, screenshot, markup and Pine scripts. Unverified: the page selectors, against a live app.
+- **Hearing** — Built. Capture, VAD, on-device wake word, speech-to-text. Unproven: the 100-utterance wake eval and the ambient false-trigger test.
+- **Visual cortex** — Built. Bars become levels, patterns and zones, drawn on the chart with a reason attached.
+- **Nervous system** — Built. Priority lanes and a task DAG; cancelling a parent cancels its dependents. Unproven: 50 ms execution start under 1 000 queued tasks.
+- **Heartbeat** — Built. Supervised daemon, market calendar, scheduler. Unproven: seven days unattended.
+- **Habits** — Workflows compose, schedule and run. Building: alerts, indicators, and speaking what they find.
+- **Endocrine system** — Config, secrets and approval modes built; `confirm` is the default. Building: envelope signing and versioning, weekly-loss and drawdown limits.
+- **Pain** — Built. Typed errors and labelled degradation; a corrupt ledger or a failing risk rule refuses to trade.
+- **Immune system** — Built. Per-agent allow-lists reject before any server is reached; none reaches execution. Unproven: the prompt-injection eval.
+- **Homeostasis** — The kill switch is a separate process and the watchdog runs. Building: runaway detection, the voice trigger, the desktop hotkey.
+- **Proprioception** — Built. Every event carries trace, agent and event; the ledger is append-only and reconciles against the broker.
+- **Metabolism** — Model spend tracked per tier per day (`genesis config usage`). Building: weekly-loss and drawdown caps on capital at risk.
+- **DNA** — Built, as the *sense* of a genome rather than a component: one reader for the vault and the prompts, behind `genesis dna` and the `DNA` module. Six kinds of drift reported, two repaired, none on a schedule. Read-only at runtime, deliberately. Unresolved: two note names still resolve two ways.
+- **Learning** — Evals and the Insight Miner run. Building: consolidation cannot yet promote observations to beliefs.
+- **Dreaming** — Backtests run on nautilus_trader and land in the UI. Building: the vectorbt parameter-sweep tier.
+
 
 ---
 

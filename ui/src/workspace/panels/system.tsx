@@ -13,9 +13,12 @@ import { useMemo, useState } from 'react'
 import { api, type CapabilityRecord, type McpToolRow } from '@/api/client'
 import { useCapabilities, useCapability } from '@/api/capabilities'
 import { useRead } from '@/api/useRead'
-import { Absent, Empty, Loading, Unbuilt } from '@/components/States'
+import { Absent, Loading, Unbuilt } from '@/components/States'
 import { Chip, Num, PanelBody, Section, Table } from '@/components/Primitives'
 import { stagger } from '@/lib/motion'
+import { openPanel } from '@/workspace/dock'
+import { toolPanelId } from './tool'
+import { ResearchCanvas } from '@/views/ResearchCanvas'
 
 // ---------------------------------------------------------------------------
 // Capability map
@@ -179,6 +182,18 @@ export function ToolSurfacePanel() {
       <Table
         rows={rows}
         keyOf={(row) => row.id}
+        // A catalogue row is now a way in. Clicking one opens that tool with
+        // its own arguments, which is what makes this a control surface rather
+        // than a printed menu.
+        onSelect={(row) =>
+          openPanel('tool', {
+            // A stable id: the same tool always lands in the same panel rather
+            // than stacking a fresh empty form beside the one you filled in.
+            id: toolPanelId(row.id),
+            title: row.name,
+            params: { toolId: row.id },
+          })
+        }
         columns={[
           {
             key: 'tool', header: 'tool',
@@ -235,90 +250,6 @@ export function ToolSurfacePanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Company
-// ---------------------------------------------------------------------------
-
-export function CompanyProfilePanel() {
-  const [ticker, setTicker] = useState('')
-  const known = useRead(() => api.companies(), [])
-  const profile = useRead(
-    () => api.company(ticker || '—'),
-    [ticker],
-  )
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center gap-2 hairline-b" style={{ padding: '4px 8px', flexShrink: 0 }}>
-        <input
-          className="field"
-          placeholder="ticker"
-          value={ticker}
-          onChange={(e) => setTicker(e.target.value.toUpperCase())}
-          style={{ width: 88 }}
-        />
-        {known.state.status === 'ready' && known.state.data.symbols.length > 0 && (
-          <div className="flex gap-1 scroll-x" style={{ flex: 1 }}>
-            {known.state.data.symbols.map((symbol) => (
-              <button key={symbol} className="btn-ghost" onClick={() => setTicker(symbol)}>
-                {symbol}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {!ticker ? (
-        <Empty hint="Profiles are read from the local store — nothing is fetched by opening this panel. Ask Genesis about a company to populate one.">
-          {known.state.status === 'ready' && known.state.data.symbols.length === 0
-            ? 'no profiles cached'
-            : 'pick a company'}
-        </Empty>
-      ) : profile.state.status === 'loading' ? (
-        <Loading rows={4} label={ticker} />
-      ) : profile.state.status !== 'ready' ? (
-        <Absent reason={profile.state.reason} onRetry={profile.reload} />
-      ) : (
-        <PanelBody>
-          <ProfileBody profile={profile.state.data.profile} />
-        </PanelBody>
-      )}
-    </div>
-  )
-}
-
-function ProfileBody({ profile }: { profile: Record<string, unknown> }) {
-  const entries = Object.entries(profile).filter(
-    ([, value]) => value !== null && value !== undefined && value !== '',
-  )
-  if (!entries.length) return <Empty>the cached profile is empty</Empty>
-
-  return (
-    <dl className="flex flex-col gap-1" style={{ margin: 0 }}>
-      {entries.map(([key, value], index) => (
-        <div
-          key={key}
-          className="flex justify-between gap-3 lift"
-          style={{ ['--i' as string]: stagger(index, 14), fontSize: 'var(--fs-tiny)' }}
-        >
-          <dt className="label" style={{ letterSpacing: '0.06em', flexShrink: 0 }}>
-            {key.replace(/_/g, ' ')}
-          </dt>
-          <dd
-            className="num"
-            style={{
-              margin: 0, color: 'var(--ink-dim)', textAlign: 'right',
-              overflow: 'hidden', textOverflow: 'ellipsis',
-            }}
-          >
-            {typeof value === 'object' ? JSON.stringify(value).slice(0, 80) : String(value)}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Research canvas — not built
 // ---------------------------------------------------------------------------
 
@@ -338,5 +269,5 @@ export function ResearchCanvasPanel() {
   const capability = useCapability('research.canvas')
   if (!capability) return <Loading rows={3} />
   if (!capability.built) return <Unbuilt capability={capability} />
-  return <Empty>canvas backend present but no renderer is wired yet</Empty>
+  return <ResearchCanvas />
 }

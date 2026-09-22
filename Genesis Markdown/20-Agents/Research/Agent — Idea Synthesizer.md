@@ -4,8 +4,8 @@ tags: [agent, research, core]
 family: research
 cadence: market-open, cron, event
 tier: large
-status: spec
-implemented_by: []
+status: built
+implemented_by: [src/genesis/agents/research/idea_synthesizer.py, src/genesis/research/schema.py, tests/research/test_research_family.py]
 ---
 
 # 💡 Agent — Idea Synthesizer
@@ -126,6 +126,31 @@ Write: `idea-synthesizer`, `shared`
   outcomes. If not, it's a bug.
 - Overnight unattended run produces ≥3 ideas with full evidence chains
   ([[Build Order]] Phase 4 exit criterion).
+
+## Implementation notes — the built subset
+
+**Every idea still requires an invalidation**, and that is enforced by the type
+rather than by the prompt: `Idea` refuses to construct without one, so a model
+that forgets produces a dropped idea and a stated caveat, never a hope with an
+idea's frontmatter.
+
+What is deliberately absent from the first build:
+
+- **No `entry_zone`, `targets`, `rr` or `suggested_risk_pct`.** Those are prices,
+  and prices that decide a trade are not a language model's output. Sizing belongs
+  to the [[Pre-Trade Risk Engine]], which does not exist — [[Safety Invariants]]
+  §1 and §3.
+- **Two confidence factors are missing**, not approximated: historical setup edge
+  and level hold rate. Both need data the system has not accumulated. A factor
+  invented to fill a row is how a calibrated number stops being calibrated. The
+  factors that *are* computed ship with every idea in `confidence_factors`,
+  including the ones that scored zero.
+- **It does not dispatch `chart.markup`.** That needs a [[Task Bus]] handle this
+  agent is not given, and [[Agent Contract]] rule 1 forbids calling the charting
+  agents directly. Until the handle exists, the human dispatches it.
+- **Citations are verified against the evidence it was handed.** A cited note id
+  that does not exist drops the idea — a hallucinated citation is worse than none,
+  because it looks checkable and is not.
 
 ## Related
 

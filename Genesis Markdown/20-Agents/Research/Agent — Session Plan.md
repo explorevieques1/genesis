@@ -5,7 +5,7 @@ family: research
 cadence: on-demand
 tier: none
 status: building
-implemented_by: [src/genesis/agents/research/session_plan.py, src/genesis/research/plan.py, src/genesis/server/plan_routes.py, tests/research/test_session_plan.py]
+implemented_by: [src/genesis/agents/research/session_plan.py, src/genesis/research/plan.py, src/genesis/server/plan_routes.py, tests/research/test_session_plan.py, ui/src/workspace/panels/trade-ideas.tsx]
 ---
 
 # 🗺️ Agent — Session Plan
@@ -108,8 +108,43 @@ plan never guesses the front month ([[Open Questions]] §13).
 | Door | Afferent | Efferent |
 |---|---|---|
 | Orchestrator | — | `idea.record`, `plan.build` |
-| HTTP | `GET /v1/ideas`, `GET /v1/plan` (builds, saves nothing) | `POST /v1/ideas`, `POST /v1/plan` |
+| HTTP | `GET /v1/ideas`, `GET /v1/trade-ideas`, `GET /v1/plan` (builds, saves nothing) | `POST /v1/ideas`, `POST /v1/plan` |
 | CLI | `genesis idea list` | `genesis idea add`, `genesis plan [--no-save]` |
+| Workspace | `TI` — the ranked desk, priced, with the gate's size | — (it opens `TRD`; it never places) |
+| CLI | `genesis universe show` | `genesis universe refresh` |
+
+> [!success] A worded idea becomes a priced one — `research/setup.py`, 2026-09-20
+> The gate sizes from entry to stop, so *"long energy on exhausted crude
+> buffers"* could never be sized: a thesis is not a distance. The setup module
+> computes the missing numbers from bars, with the engine that already exists —
+> `read_structure` for trend, swing and ATR, `compute_levels` for the
+> structural prices — and it is `tier: none` throughout. **No model produces a
+> price.**
+>
+> **The stop is structural first, volatility second.** A level is where other
+> people's orders are; an ATR band is where noise ends. The stop goes a quarter
+> ATR beyond the nearest level on the losing side — but only if that level sits
+> **at least 1 ATR away**. The nearest level is usually yesterday's high or low,
+> and a stop there is hit on an ordinary Tuesday; worse, the tiny risk distance
+> makes the gate size the maximum position against it. Below that floor it
+> keeps looking further out, and falls back to 1.5 ATR while saying so.
+>
+> **Prices land on the tick grid**, because the gate refuses an off-grid stop
+> for being off-grid rather than for anything that matters — and "your idea was
+> rejected" is a poor way to learn about rounding. The broker's `min_tick`
+> stays authoritative at proposal time.
+>
+> **A chart that cannot be read gives an unsized idea, never a guessed one.**
+> Too few bars, or an ATR of zero, and the idea is stored with its thesis and
+> no prices. That is Idea Schema's own rule, applied to the machine.
+
+> [!note] `TI` reads the plan, it does not re-implement it
+> `GET /v1/trade-ideas` builds a plan with `save=false` and returns its items
+> merged with each idea's provenance, plus the brief's `watch` items in a lane
+> of their own. The size beside an idea is therefore the **gate's dry run of
+> that exact ticket** — there is one sizing implementation in the system and a
+> panel is not allowed to be the second one. Acting on an idea is still
+> `propose → approve → place` through `TRD`.
 
 `genesis plan` goes through the running server when there is one — only that process
 holds the order manager, and the order manager is what sizes. Offline it builds
